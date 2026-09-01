@@ -49,8 +49,28 @@ st.markdown('''
 ''', unsafe_allow_html=True)
 
 
+def ensure_data_exists():
+    """
+    启动时检查 data/raw/ 是否有 CSV
+    如果没有（比如 Streamlit Cloud 部署时），自动运行 generate_fallback.py 生成兜底数据
+    """
+    raw_dir = Path(__file__).parent.parent / 'data' / 'raw'
+    csv_files = list(raw_dir.glob('*.csv')) if raw_dir.exists() else []
+    if csv_files:
+        return
+    # 没有数据，自动调用 generate_fallback
+    import subprocess
+    import sys as _sys
+    script_path = Path(__file__).parent.parent / 'scripts' / 'generate_fallback.py'
+    try:
+        subprocess.run([_sys.executable, str(script_path)], check=True, capture_output=True, timeout=30)
+    except Exception as e:
+        st.warning(f'自动生成数据失败: {e}，请手动运行 python3 scripts/generate_fallback.py')
+
+
 @st.cache_data
 def load_data():
+    ensure_data_exists()
     df_raw = load_all_raw()
     if df_raw.empty:
         return pd.DataFrame()
