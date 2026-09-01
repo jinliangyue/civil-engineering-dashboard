@@ -150,11 +150,12 @@ with col4:
 st.markdown('---')
 
 # Tab 切换
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     '📈 趋势分析',
     '🔗 行业相关性',
     '📊 同比变动',
     '🔮 未来预测',
+    '🤖 机器学习',
     '📋 数据说明',
 ])
 
@@ -336,8 +337,136 @@ with tab4:
     st.plotly_chart(fig, use_container_width=True)
 
 
-# ============ Tab 5: 数据说明 ============
+# ============ Tab 5: 机器学习预测 ============
 with tab5:
+    st.markdown('### 🤖 机器学习多模型对比')
+    st.markdown('基于特征工程的 XGBoost + 序列建模的 LSTM 双模型对比，覆盖 4 个行业 × 11 年数据。')
+    # 懒加载（避免每次切换 Tab 都重训）
+    @st.cache_data(show_spinner=False)
+    def train_ml_models(_df):
+        from src.analyzer.features import build_features, get_feature_columns
+        from src.analyzer.ml_models import train_all_models
+        df_features = build_features(_df)
+        if df_features.empty:
+            return None, []
+        feature_cols = get_feature_columns(df_features)
+        result = train_all_models(df_features, feature_cols, test_years=[2024, 2025], forecast_years=3)
+        return result, feature_cols
+    with st.spinner('正在训练机器学习模型（首次约 30-60 秒）...'):
+        ml_result, feature_cols = train_ml_models(df)
+    if ml_result is None or ml_result.get('status') != 'success':
+        st.error('模型训练失败，请检查数据完整性')
+        st.stop()
+    # 模型评估对比
+    st.markdown('#### 模型评估对比')
+    eval_rows = []
+    if 'xgboost' in ml_result:
+        xgb_metrics = ml_result['xgboost']['metrics']
+        eval_rows.append({
+            '模型': 'XGBoost',
+            'MAE': xgb_metrics.get('MAE'),
+            'RMSE': xgb_metrics.get('RMSE'),
+            'MAPE %': xgb_metrics.get('MAPE_pct'),
+            'R²': xgb_metrics.get('R_squared'),
+            '特点': '梯度提升树 + 强特征工程',
+        })
+    if 'lstm' in ml_result:
+        lstm_metrics = ml_result['lstm']['metrics']
+        eval_rows.append({
+            '模型': 'LSTM',
+            'MAE': lstm_metrics.get('MAE'),
+            'RMSE': lstm_metrics.get('RMSE'),
+            'MAPE %': lstm_metrics.get('MAPE_pct'),
+            'R²': lstm_metrics.get('R_squared'),
+            '特点': '神经网络 + 序列建模',
+        })
+    if eval_rows:
+        st.dataframe(pd.DataFrame(eval_rows), use_container_width=True)
+    # XGBoost 特征重要性
+    if 'xgboost' in ml_result and ml_result['xgboost'].get('feature_importance'):
+        st.markdown('#### XGBoost 特征重要性')
+        fi = pd.Series(ml_result['xgboost']['feature_importance']).sort_values(ascending=True)
+        fig = go.Figure(go.Bar(
+            x=fi.values,
+            y=fi.index,
+            orientation='h',
+            marker_color='#3b82f6',
+        ))
+        fig.update_layout(
+            title='特征重要性（基于 XGBoost 增益）',
+            xaxis_title='重要性',
+            yaxis_title='特征',
+            template='plotly_white',
+            height=400,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    # 未来预测对比
+    st.markdown('#### 2026-2028 多模型预测对比')
+    future_years = [2026, 2027, 2028]
+    fig = go.Figure()
+    # 历史数据
+    for material in selected_materials:
+        sub = df_filtered[df_filtered['material'] == material].sort_values('year')
+        fig.add_trace(go.Scatter(
+            x=sub['year'],
+            y=sub['price'],
+            mode='lines+markers',
+            name=f'{material} (历史)',
+            line=dict(color=colors.get(material, '#64748b'), width=2),
+            marker=dict(size=8),
+        ))
+    # XGBoost 预测
+    if 'xgboost' in ml_result and ml_result['xgboost'].get('future_predictions'):
+        xgb_pred = ml_result['xgboost']['future_predictions']
+        fig.add_trace(go.Scatter(
+            x=future_years,
+            y=xgb_pred,
+            mode='lines+markers',
+            name='XGBoost 预测',
+            line=dict(color='#3b82f6', width=2, dash='dash'),
+            marker=dict(size=8, symbol='diamond'),
+        ))
+    # LSTM 预测
+    if 'lstm' in ml_result and ml_result['lstm'].get('future_predictions'):
+        lstm_pred = ml_result['lstm']['future_predictions']
+        fig.add_trace(go.Scatter(
+            x=future_years,
+            y=lstm_pred,
+            mode='lines+markers',
+            name='LSTM 预测',
+            line=dict(color='#ef4444', width=2, dash='dash'),
+            marker=dict(size=8, symbol='star'),
+        ))
+    fig.add_vline(x=2025.5, line_dash='dot', line_color='gray', opacity=0.5)
+    fig.update_layout(
+        title='机器学习多模型预测对比',
+        xaxis_title='年份',
+        yaxis_title='PPI 指数（上年=100）',
+        template='plotly_white',
+        hovermode='x unified',
+        height=500,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    # 方法论说明
+    st.markdown('#### 方法论')
+    st.markdown('''
+**特征工程（应对样本点少的关键）**：
+- 滞后特征：去年 + 前年价格（捕捉时间依赖）
+- 跨行业特征：黑色冶炼预测黑色矿采选（捕捉产业链联动）
+- 时间特征：年份、距基准年、是否 5 年规划起点
+- 滚动统计：3 年移动平均 + 移动标准差
+- 行业 one-hot 编码（区分不同行业模式）
+
+**训练 / 测试划分**：2015-2022 训练（32 样本），2023-2025 测试（12 样本）
+
+**模型说明**：
+- XGBoost：基于特征工程的梯度提升树，对结构化数据效果好
+- LSTM：长短期记忆网络，捕捉非线性时间依赖（样本少时仅作方法展示）
+''')
+
+
+# ============ Tab 6: 数据说明 ============
+with tab6:
     st.markdown('### 数据摘要')
     st.json(summary)
     st.markdown('### 完整数据预览')
