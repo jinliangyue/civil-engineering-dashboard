@@ -97,10 +97,10 @@ Python · pandas · numpy · Plotly · Streamlit · 数据可视化 · 时间序
 ## 简历附带的链接清单
 
 ```
-GitHub 仓库：（待创建）
-Streamlit Cloud：（待部署）
-项目文档：（待生成）
-README：（待完善）
+GitHub 仓库：https://github.com/jinliangyue/civil-engineering-dashboard
+Streamlit Cloud：https://civil-engineering-ppi.streamlit.app/
+项目文档：docs/ 目录下 5 份
+README：根目录 README.md
 ```
 
 简历项目栏示例：

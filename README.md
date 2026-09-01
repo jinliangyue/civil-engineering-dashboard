@@ -3,7 +3,8 @@
 > 基于国家统计局公开 PPI 数据，分析 4 大工业行业跨年度价格走势 + 相关性 + 预测的可视化平台。
 > 作者：十八 · 22 岁土木工程准大四 · 2026 秋招简历项目
 
-**在线 Demo**：*（部署后填入 Streamlit Cloud URL）*
+**在线 Demo**：https://civil-engineering-ppi.streamlit.app/
+**GitHub 仓库**：https://github.com/jinliangyue/civil-engineering-dashboard
 
 ---
 

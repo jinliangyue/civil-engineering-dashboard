@@ -63,10 +63,22 @@ git push -u origin main
 
 ### 步骤 4：测试部署
 
-打开应用 URL，应该能看到：
+打开应用 URL：https://civil-engineering-ppi.streamlit.app/
+
+应该能看到：
 - 标题：中国工业 PPI 跨行业分析平台
 - 5 个 Tab（趋势 / 相关性 / 同比 / 预测 / 数据说明）
 - 4 个行业的数据可视化
+
+---
+
+## 当前部署状态
+
+- **Streamlit Cloud URL**：https://civil-engineering-ppi.streamlit.app/
+- **GitHub 仓库**：https://github.com/jinliangyue/civil-engineering-dashboard
+- **部署时间**：2026-09-01
+- **数据**：4 个行业 × 11 年 = 44 个数据点（兜底数据）
+- **状态**：已部署上线，自动从 data/raw/ 加载数据
 
 ---
 
