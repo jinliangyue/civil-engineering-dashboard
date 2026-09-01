@@ -23,7 +23,8 @@ ENV/
 .DS_Store
 
 # 数据（不提交原始 CSV，避免仓库过大）
-data/raw/
+# 注：data/raw/ 的兜底数据保留提交，方便 clone 后直接跑通
+# data/raw/
 data/processed/*.csv
 data/processed/*.sqlite
 data/processed/figures/*.png
