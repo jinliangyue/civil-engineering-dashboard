@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 虚拟环境
+venv/
+env/
+.venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# 数据（不提交原始 CSV，避免仓库过大）
+data/raw/
+data/processed/*.csv
+data/processed/*.sqlite
+data/processed/figures/*.png
+
+# 部署
+.streamlit/secrets.toml
+
+# 日志
+*.log
+logs/
+
+# 临时文件
+tmp/
+*.tmp
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 测试报告
+test_reports/
