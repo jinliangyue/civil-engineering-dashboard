@@ -1,301 +1,227 @@
-# 工程造价项目 · 完整状态报告（2026-09-02 v2 升级备份）
+# 项目完整状态报告（2026-09-03 P0.8 重构）
 
 > 这是项目的完整快照，下次重启或换电脑也能从这里恢复所有上下文。
-> **2026-09-02 v1**：用 akshare 抓取的 132 个月度真实数据点替换兜底数据 + 新增 Tab 7 月度时间序列预测模块 + LSTM 真正可训练。
-> **2026-09-02 v2（再升级）**：LSTM 18 组合网格搜索 + 3 折时间序列 CV + 反比 MAPE 加权集成学习（集成 MAPE=0.24% 比单一模型低 15%）。
+> **当前阶段**：P0.7 审计完成 + P0.8 文档清理完成
 
 ---
 
 ## 1. 项目身份
 
 ```
-项目名：中国工业 PPI 跨行业分析平台
+项目名：中国工业 PPI 月度时间序列分析与预测平台
 仓库：jinliangyue/civil-engineering-dashboard
 在线 Demo：https://civil-engineering-ppi.streamlit.app/
 本地目录：~/Desktop/Claude code/civil-engineering-dashboard/
 作者笔名：十八（民企二本土木准大四）
 用途：2026 秋招简历项目
 创建时间：2026-09-01
-升级时间：2026-09-02（月度真实数据 + Tab 7）
+最新重构：2026-09-02 ~ 2026-09-03（P0.1 ~ P0.8）
 ```
 
 ---
 
-## 2. 关键技术决策（2026-09-02 v2 升级版）
+## 2. 当前正式数据
 
 ```
-1. 双轨数据源（升级后）：
-   - 年度分行业：4 行业 × 11 年 = 44 点（公开 PPI 指数整理，跨行业相关性分析）
-   - 月度总指数：132 点（akshare 从统计局抓取，时间序列预测主线）
-2. 数据源诚实标注：
-   - 月度数据：akshare.macro_china_ppi()（间接从统计局月度发布抓取）= 真实
-   - 年度分行业：公开 PPI 指数范围整理 = 兜底估算（需在简历/面试中诚实说明）
-3. 行业：黑色金属冶炼、有色金属冶炼、黑色金属矿采选、有色金属矿采选（4 个）
-4. 时间：2015-2025 共 11 年（年度）+ 132 月（2015-01 至 2025-12）
-5. 技术栈：
-   - Python 3.10+ + pandas + numpy + scipy
-   - Plotly（交互式可视化）
-   - Streamlit + Streamlit Cloud（部署）
-   - Prophet（月度时间序列）+ XGBoost + TensorFlow/Keras（LSTM）
-   - akshare（数据抓取）
-   - scipy.stats（线性回归 + 95% 置信区间）
-6. 部署模式：git push main → Streamlit Cloud webhook 自动捕获 → 自动部署
+数据文件：data/raw/工业PPI_全国月度_2015-2025.csv
+数据源：akshare.macro_china_ppi() 间接从国家统计局月度发布抓取
+时间范围：2015-01 ~ 2025-12（共 11 年）
+数据点数：132 个真实月度观测
+字段：date, ppi_index, yoy_pct, ytd_index
+指数基准：上年同月 = 100
+```
+
+**已删除**：4 行业 × 11 年 = 44 个手工估算数据点（旧 fallback 已废弃）。
+
+---
+
+## 3. 正式实验划分（Phase 2 v3.1 冻结）
+
+```
+Train       2015-01 ~ 2021-12  84 points
+Validation  2022-01 ~ 2023-12  24 points
+Final Test  2024-01 ~ 2025-12  24 points
+Total                        132 points
 ```
 
 ---
 
-## 3. 功能模块（7 个 Tab · 升级后）
+## 4. P0.5 正式实验结果（Final Test · 2024-01 ~ 2025-12）
+
+| Model          |   MAE |   RMSE |    MAPE |        R² |
+| -------------- | ----: | -----: | ------: | --------: |
+| Naive          | 0.3583| 0.4805 | 0.3667% |    0.5248 |
+| Seasonal Naive | 1.2625| 1.7599 | 1.2904% |   -5.3757 |
+| MA             | 0.5903| 0.7432 | 0.6040% |   -0.1371 |
+| SES            | 0.5507| 0.6948 | 0.5633% |    0.0062 |
+| Prophet        |11.7556|12.4687 |12.0476% | -319.0508 |
+| XGBoost        | 0.3482| 0.4824 | 0.3558% |    0.5209 |
+| LSTM           | 0.4288| 0.5224 | 0.4387% |    0.4381 |
+| **Ensemble**   |**0.3473**|**0.4589**|**0.3551%**|**0.5664** |
+
+### Ensemble 权重（来自 Validation，Test 评估前锁定）
 
 ```
-年度数据（Tab 1-5）：保留 4 行业 × 11 年 = 44 点结构
-Tab 1 · 趋势分析
-Tab 2 · 跨行业相关性
-Tab 3 · 同比变动
-Tab 4 · 年度预测（线性回归）
-Tab 5 · ML（年度）—— XGBoost + LSTM（44 点样本，LSTM 仅作方法展示）
-Tab 6 · 数据说明
-Tab 7 · 月度时间序列（升级）—— Prophet + XGBoost + LSTM（132 点真训练）+ LSTM 超参调优（18 组合 × 3 折 CV）+ 反比 MAPE 加权集成学习
-  - 各行业 PPI 同比变动柱状图
-
-Tab 4 · 未来预测
-  - 线性回归预测 2026-2028
-  - 95% 置信区间
-  - 滑块控制预测年数
-
-Tab 5 · 机器学习
-  - XGBoost 模型（梯度提升树 + 强特征工程）
-  - LSTM 模型（神经网络 + 序列建模）
-  - 双模型对比 + 特征重要性
-  - 2026-2028 多模型预测对比图
-
-Tab 6 · 数据说明
-  - 数据摘要
-  - 完整数据预览 + CSV 下载
-  - 数据来源说明
+Naive           0.28189
+Seasonal Naive  0.03278
+MA              0.15227
+SES             0.11433
+Prophet         0.00947
+XGBoost         0.24592
+LSTM            0.16333
 ```
 
 ---
 
-## 4. 关键发现（真实数据）
+## 5. P0.6 Walk-forward 稳健性验证
+
+### Folds
 
 ```
-产业链相关性：
-- 黑色冶炼 vs 黑色矿采选 R=0.91（高度联动）
-- 有色冶炼 vs 有色矿采选 R=0.93（高度联动）
-- 黑色冶炼 vs 有色冶炼 R=0.79（中等相关）
+F1: Train 2015-2020 (72) → Test 2021 (12)
+F2: Train 2015-2021 (84) → Test 2022 (12)
+F3: Train 2015-2022 (96) → Test 2023 (12)
+```
 
-长期趋势（11 年）：
-- 黑色金属冶炼：年均 -0.81，R²=0.06（弱下降）
-- 黑色金属矿采选：年均 +0.08，R²=0.0003（基本无趋势）
-- 有色金属冶炼：年均 +0.87，R²=0.10（弱上升）
-- 有色金属矿采选：年均 +1.27，R²=0.21（中等上升）
+### Mean MAPE ± Std
 
-2026 预测：
-- 黑色金属冶炼：98.9（接近基准，即将企稳）
-- 黑色金属矿采选：106.5
-- 有色金属冶炼：110.4
-- 有色金属矿采选：116.0
+| Model          |  Mean MAPE |   Std   |
+| -------------- | ---------: | ------: |
+| Naive          |   1.0192% | 0.2561% |
+| Seasonal Naive |   7.9091% | 0.8075% |
+| MA             |   1.8170% | 0.5036% |
+| SES            |   2.4818% | 0.7270% |
+| Prophet        |  12.1357% | 2.1644% |
+| XGBoost        |   1.5958% | 0.8992% |
+| LSTM           |   1.4087% | 0.5024% |
+
+注：Walk-forward 未重新计算 Ensemble 权重（P0.5 权重来自固定 Validation）。
+
+---
+
+## 6. P0.5 vs P0.6 差异（重要解释）
+
+**P0.5 测试期 2024-2025** 处于 PPI 低波动阶段（annual range 2.1 / 1.7）。
+Naive baseline 在该期间 MAPE=0.37%，**接近 0.4% 已经非常接近理论极限**。
+
+**P0.6 覆盖 2021 / 2022 / 2023** 包含 PPI 高位、回落、平稳三个阶段（2021 range 13.2）。
+
+P0.5 的 Ensemble MAPE=0.3551% **不应被解读为复杂模型的预测能力**——它主要反映 2024-2025 区间本身的低波动性。
+
+P0.6 的 Mean MAPE 更能反映模型在不同历史窗口下的稳健性。
+
+**两套实验目的不同，不能简单比较数字大小。**
+
+---
+
+## 7. 已验证的工程实现
+
+### XGBoost Subprocess 隔离
+
+XGBoost 训练 + 预测在独立 Python 子进程（spawn 启动 / 60 秒 hard timeout / terminate 处理）执行。
+主进程在子进程退出后才跑 LSTM，避免 XGBoost + PyTorch runtime 冲突。
+
+### 严格 Causal Feature
+
+XGBoost 所有 lag / rolling / yoy / mom 特征在 `build_features_monthly_causal` 中通过 `shift(1)` 保证只用过去值。
+
+### Rolling One-step-ahead Prediction
+
+XGBoost 和 LSTM 都用 one-step-ahead rolling prediction：
+```
+预测 t+1 → 用 history（含 train + 之前 test actual）
+预测完成后 → 把 t+1 actual 加入 history
+预测 t+2 → 用更新后的 history
+```
+
+### LSTM Hyperparameter Isolation
+
+P0.3 已锁定 LSTM 调参严格只用 Train 84 点（P0.3 commit `42ae111`），不接触 Validation 或 Test。
+
+---
+
+## 8. Git History（主线）
+
+```
+9a64d22  feat: add walk-forward validation               P0.6
+6a901b2  feat: build validation-weighted ensemble        P0.5
+30788cc  fix: complete LSTM test rolling predictions     P0.4 修复
+c087faa  refactor: make monthly models out-of-sample     P0.4
+42ae111  refactor: isolate LSTM tuning to train data     P0.3
+79e9121  feat: add unified evaluation metrics            P0.2
+587f9c6  refactor: remove legacy PPI fallback data       P0.1
+ba60aae  checkpoint: Phase 2 v3.1 frozen
 ```
 
 ---
 
-## 5. 简历项目栏 3 个版本
+## 9. 测试与质量保证
 
-### 100 字精简版
-```
-中国工业 PPI 跨行业分析平台。基于国家统计局公开 PPI 数据，覆盖 4 大工业行业 × 11 年，实现长期趋势分析、跨行业相关性、2026-2028 预测。基于 Python + pandas + Plotly + Streamlit + XGBoost + TensorFlow 全栈实现并部署上线。
-```
+- `src/evaluation/metrics.py` 9/9 单元测试套件通过
+- P0.5 / P0.6 leakage checks 全部 PASS（boundary / date alignment / XGB causal / LSTM causal / no Test contamination）
+- 132 月度数据全部可追溯到 akshare → 国家统计局公开 PPI
 
-### 200 字完整版
-```
-基于国家统计局公开的工业生产者出厂价格指数（PPI），构建了 4 大工业行业（黑色金属冶炼、有色金属冶炼、黑色金属矿采选、有色金属矿采选）的跨年度价格走势对比平台。覆盖 2015-2025 共 11 年 × 4 个行业 = 44 个数据点，实现了长期趋势分析（线性回归 R² + 斜率 + 年均变动）、跨行业相关性矩阵、同比变动、2026-2028 线性回归预测（带 95% 置信区间）、机器学习多模型对比（XGBoost + LSTM）5 大功能。技术栈：Python + pandas + Plotly + Streamlit + XGBoost + TensorFlow，已部署到 Streamlit Cloud 提供在线交互式仪表盘。
-```
+---
 
-### STAR 法则版本
+## 10. 已废弃的旧结果（不得再用于正式展示）
+
+以下数字来自旧版本（fallback 数据 / 旧 leaky 实现 / TF 时代 LSTM 调优），已不再适用：
+
+- 集成 MAPE = 0.241%
+- 集成比单一最强 XGBoost 低 15%
+- LSTM R² = -0.74 → 0.61
+- XGBoost Test MAPE = 0.283%
+- XGBoost R² = 0.7282
+- 4 行业 × 11 年 = 44 手工估算点
+- 旧 2026 forecast: 98.9 / 106.5 / 110.4 / 116.0
+
+这些数字已替换为本文第 4-5 节中的 P0.5/P0.6 真实数字。
+
+---
+
+## 11. 秋招投递清单（保留）
+
 ```
-Situation：中国工程造价核心是材料价格管理。PPI 是材料调差公式的关键基准，但公开数据散落、缺乏跨行业对比工具。
-Task：构建跨年度 PPI 跨行业分析平台，覆盖 2015-2025 共 11 年 × 4 个行业 = 44 个数据点。
-Action：
-- 数据层：从国家统计局公开数据源整理 4 个行业 × 11 年数据
-- 分析层：用 pandas + scipy 做趋势分析、跨行业相关性、同比变动、2026-2028 线性回归预测 + 95% 置信区间
-- 机器学习层：5 类特征工程（滞后 / 跨行业 / 时间 / 滚动 / one-hot）+ XGBoost + LSTM 双模型对比
-- 应用层：Plotly 交互式图表 + Streamlit 多页仪表盘 + Streamlit Cloud 部署
-Result：
-- 发现黑色冶炼 vs 黑色矿采选价格高度相关（R=0.91），符合产业链上下游联动规律
-- 预测 2026 年黑色金属冶炼 PPI=98.9、黑色金属矿采选=106.5、有色金属冶炼=110.4、有色金属矿采选=116.0
-- 在线 Demo 已部署 + 6 个 Tab 交互式分析
+第一梯队（最高匹配）：中建 / 中铁 / 中交 / 中冶 / 中电建 / 能建
+第二梯队：BIM 咨询 / 设计院 / 智慧工地公司
+第三梯队：地方国企 / 大型房企工程岗
 ```
 
 ---
 
-## 6. 面试讲稿要点
+## 12. Limitations
 
-### 5 分钟项目讲稿
-1. 项目主题：工程造价材料价格分析 demo
-2. 数据：4 行业 × 11 年 = 44 数据点
-3. 方法：pandas 清洗 + scipy 趋势分析 + 跨行业相关性 + 线性回归预测
-5. 技术：Python + Plotly + Streamlit + XGBoost + TensorFlow
-6. 结尾：项目对工程造价工作的实际意义
+1. 132 月度观测点限制
+2. 单变量时间序列（未加入宏观外生变量）
+3. 2024-2025 Test 处于 PPI 低波动阶段
+4. Walk-forward 中复杂模型并未稳定击败 Naive baseline
+5. 无预测区间 / 不确定性估计
+6. 当前为方法论验证，不应解读为对未来 PPI 的保证
 
-### 15 分钟深度讲稿（含机器学习）
-- 详细见 `docs/interview_script_ml.md`
-- 重点讲特征工程策略（应对样本少）+ 3 个模型对比 + 项目局限性
-
-### 数据获取真实故事
-- 我的钢铁网/兰格钢铁网需要企业认证
-- Kaggle/GitHub 数据陈旧
-- 国家统计局 API IP 被封
-- 最终用公开 PPI 指数 + 兜底估算
-- 展示面对限制的灵活应变
+详见 README.md §Limitations。
 
 ---
 
-## 7. 秋招投递清单
+## 13. Future Work
 
-### 第一梯队（最高匹配 · 应优先投）
-- 中建系统（一局到八局 + 中建科技/安装/装饰/科创）
-- 中铁系统（一局到二十五局 + 中铁建工/电气化/大桥）
-- 中交系统（一公局到四公局 + 中交建/疏浚/隧道）
-- 中冶系统（建工/赛迪/京城等）
-- 中电建/能建系统
-
-### 第二梯队（中等匹配）
-- BIM 咨询公司（鲁班/广联达子公司/品茗科技/新点软件）
-- 设计院系统（中建西北院/北京院/华建集团）
-- 智慧工地公司
-- 工程造价咨询公司
-
-### 第三梯队（保底）
-- 地方国企（北京建工/上海建工/陕西建工等）
-- 大型房企工程岗（中海/华润/保利等）
+- 加入外生宏观变量（PMI / CPI / 能源价格 / 汇率 / 商品价格）
+- 多变量时序模型
+- 更长时间跨度的数据
+- 更严格的 rolling-origin evaluation
+- 预测区间 / 不确定性估计
+- 2026 future-forecast monitoring（仅在验证 pipeline 完全可复现后）
 
 ---
 
-## 8. 接下来 30 天精确行动清单
-
-### 第 1 周（9/1-9/7）
-- 复制本文件里的3 个简历版本到简历模板
-- 用 `interview_script_ml.md` 练 5 分钟讲稿 3 遍
-- 准备 1 分钟自我介绍
-
-### 第 2 周（9/8-9/14）
-- 投递第一梯队
-- 准备 15 分钟深度讲稿
-- 复习工程造价核心（综合单价/材料调差/工程量清单）
-
-### 第 3 周（9/15-9/21）
-- 投递第二梯队
-- 准备 STAR 自我介绍
-- 复习数据分析面试题
-
-### 第 4 周（9/22-9/30）
-- 投递第三梯队
-- 准备技术深挖（项目实现细节）
-- 模拟面试练习
-
----
-
-## 9. GitHub commit 历史
-
-```
-6bdcb42 feat: 初始化中国工业 PPI 跨行业分析平台
-6202c91 → 7033efe (中间调整)
-7f6a817 chore: add fallback data
-df43da8 fix: 自动生成兜底数据如果data/raw为空
-dea0a14 docs: 填入实际 GitHub + Streamlit Cloud URL
-a1f565c feat: 加机器学习预测模块（XGBoost + LSTM）
-5a2e85c docs: 加机器学习功能描述 + 面试讲稿
-```
-
----
-
-## 10. Token 管理
-
-```
-旧 token（已撤销）：见用户本地密钥管理 / macOS Keychain
-当前 token：见用户本地密钥管理 / macOS Keychain（命名：claude-code-auto-deploy1）
-有效期：90 天
-用途：claude-code-auto-deploy1
-备注：GitHub 会在到期前邮件提醒，届时生成新 token
-安全原则：Token 永远不写入任何公开仓库、文档、对话记录
-```
-```
-
----
-
-## 11. 项目局限性（面试要诚实说）
-
-```
-- 数据：4 行业 × 11 年 = 44 个点（样本少）
-- LSTM 因样本少主要作为方法展示
-- 数据基于公开 PPI 指数范围整理（兜底估算）
-- 没用真实月度数据（4 个数据源都拿不到）
-- 跨行业特征有数据泄露风险（同年的其他行业价格不算真「未来预测」）
-```
-
----
-
-## 12. 文件结构
-
-```
-civil-engineering-dashboard/
-├── README.md                              项目说明
-├── requirements.txt                       Python 依赖
-├── .gitignore                            Git 忽略
-├── app/
-│   └── streamlit_app.py                   Streamlit 主程序（6 个 Tab）
-├── data/
-│   ├── raw/                              兜底数据（4 个 CSV）
-│   └── README.md                         数据字典
-├── docs/
-│   ├── PROJECT_STATUS.md                 本文件（完整备份）
-│   ├── DATA_INPUT_SPEC.md                数据规范
-│   ├── data_sources.md                   数据源调研
-│   ├── WORKFLOW.md                      协作工作流
-│   ├── DEPLOYMENT.md                     部署指南
-│   ├── resume_description.md             简历描述 3 个版本
-│   └── interview_script_ml.md            面试讲稿（5/15 分钟）
-├── scripts/
-│   ├── generate_fallback.py              兜底数据生成
-│   └── run_pipeline.py                   本地分析
-├── src/
-│   ├── data_loader.py                    数据加载
-│   ├── data_cleaner.py                   数据清洗
-│   ├── analyzer/
-│   │   ├── trend.py                      趋势分析
-│   │   ├── seasonality.py                季节性分析
-│   │   ├── forecast.py                   传统预测
-│   │   ├── features.py                   特征工程
-│   │   └── ml_models.py                  XGBoost + LSTM
-│   └── visualizer/
-│       └── plotly_helpers.py             图表模板
-└── tests/                                单元测试（空）
-```
-
----
-
-## 13. 如何继续这个项目
-
-```
-1. 拉取最新代码：git pull origin main
-2. 安装依赖：pip3 install -r requirements.txt
-3. 跑本地测试：python3 scripts/run_pipeline.py
-4. 启动本地应用：streamlit run app/streamlit_app.py
-5. 修改后推送：git add . && git commit -m "..." && git push origin main
-6. Streamlit Cloud 自动部署（5 分钟内）
-```
-
----
-
-## 14. 联系信息（可选）
+## 14. 联系信息
 
 ```
 作者笔名：十八
-求职目标：中建/中铁/中交系统 · BIM/智慧工地/工程信息化岗位
+求职目标：中建 / 中铁 / 中交 系统 · BIM / 智慧工地 / 工程信息化岗位
 GitHub：jinliangyue
 Streamlit Demo：civil-engineering-ppi.streamlit.app
 ```
 
 ---
 
-**本文件由 Claude Code 生成于 2026-09-01，下次重启会话可作为完整上下文恢复。**
+**本文件由 Claude Code 在 2026-09-03 重构，作为 P0.1~P0.8 完成后的项目状态备份。**

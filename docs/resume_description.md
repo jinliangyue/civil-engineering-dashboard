@@ -1,168 +1,142 @@
-# 简历描述模板
+# 简历项目描述（P0.8 重构 · 基于 P0.5 / P0.6 真实实验结果）
 
-## 项目名称
+> 本文件提供 3 个版本的简历项目描述。所有数字均来自严格的实验审计（P0.5 Final Test + P0.6 Walk-forward），不允许使用任何旧的 fallback / leakage 相关数字。
 
-中国工业 PPI 跨行业分析平台
+---
 
-## 简历项目栏（200 字版本）
+## 项目名
 
-> 基于国家统计局公开的工业生产者出厂价格指数（PPI），构建了 4 大工业行业（黑色金属冶炼、有色金属冶炼、黑色金属矿采选、有色金属矿采选）的跨年度价格走势分析平台 + 月度时间序列预测 + 集成学习模块。覆盖 11 年 × 4 行业 = 44 个年度数据点 + akshare 抓取的 132 个月度真实数据点，实现了长期趋势分析、跨行业相关性矩阵、同比变动、2026-2028 线性回归预测、LSTM 超参网格搜索（18 组合 × 3 折时间序列 CV）、Prophet + XGBoost + LSTM 三模型对比、反比 MAPE 加权集成学习（集成模型 MAPE=0.24% 比单一模型低 15%）8 大功能。基于 Python + pandas + Plotly + Streamlit + TensorFlow + Prophet + akshare 全栈实现，已部署到 Streamlit Cloud 提供在线交互式仪表盘。
+**中国工业 PPI 月度时间序列分析与预测平台**
 
-## 简历项目栏（100 字精简版）
+---
 
-> 基于国家统计局公开 PPI 数据，构建了 4 大工业行业跨年度 + 月度时间序列分析平台。实现了趋势分析、跨行业相关性、LSTM 网格搜索调优、三模型预测 + 集成学习共 8 大功能，覆盖 44 年度 + 132 月度数据点。基于 Python + Plotly + Streamlit + TensorFlow 全栈实现并部署上线。
+## 100 字精简版（项目栏短描述）
 
-## 项目技术关键词（用于简历筛选）
+> 基于国家统计局公开的工业生产者出厂价格指数（PPI），构建月度时间序列分析与预测平台。覆盖 2015-01 ~ 2025-12 共 132 个真实月度观测，集成 4 类统计基准、Prophet、XGBoost 与 PyTorch LSTM，并实现 Validation-weighted Ensemble 与 Walk-forward Validation 稳健性评估。
+
+---
+
+## 200 字完整版（项目栏完整描述）
+
+> 基于 akshare 抓取的国家统计局月度 PPI 数据（2015-01 ~ 2025-12，132 个真实月度观测），构建中国工业 PPI 月度时间序列分析与预测平台。采用严格的 Train/Validation/Test 划分（84 / 24 / 24 月），最终 Test 区间 2024-01 ~ 2025-12 共 24 个月严格 OOS 评估。评估 7 个模型（Naive / Seasonal Naive / MA / SES / Prophet / XGBoost / LSTM），其中 XGBoost Test MAPE=0.36%、LSTM MAPE=0.44%、Validation-weighted Ensemble MAPE=0.36% / R²=0.57。同时实现 3-fold expanding-window Walk-forward Validation（2021/2022/2023 各 12 个月）验证多年稳健性：XGBoost Mean MAPE=1.60%、LSTM Mean MAPE=1.41%。完整 leakage 防控：LSTM scaler 仅 fit 训练段、XGBoost 因果特征 + 子进程隔离、所有 rolling/lag/yoy/mom 特征严格 causal。技术栈：Python · pandas · Prophet · XGBoost · PyTorch LSTM · akshare · Streamlit，已部署到 Streamlit Cloud。
+
+---
+
+## STAR 法则版本（面试讲稿用）
+
+**Situation（背景）**
+
+中国工程造价的核心是材料价格管理，而 PPI（工业生产者出厂价格指数）是材料调差公式的关键基准。公开 PPI 月度数据散落在国家统计局各类公报中，缺乏跨年度对比工具和严谨的预测流程。
+
+**Task（任务）**
+
+构建一个端到端的月度 PPI 时序预测与评估平台，覆盖完整实验边界、数据隔离、leakage 防控和模型对比。
+
+**Action（行动）**
+
+- **数据层**：通过 akshare 从国家统计局抓取 2015-01 ~ 2025-12 共 132 个月度 PPI 真实数据点
+- **特征工程**：15 个手工因果特征（lag 1/3/6/12 + rolling mean/std 3/6/12 + 同比/环比），全部基于 shift(1) 保证因果性
+- **模型层**：评估 7 个模型（Naive / Seasonal Naive / MA / SES / Prophet / XGBoost / LSTM），其中 LSTM 使用 P0.3 锁定的网格搜索参数（hidden_size=32 / dropout=0.1 / seq_length=6）
+- **集成层**：Validation 反比 MAPE 加权，权重在 Final Test 评估前锁定（Test 不参与权重计算）
+- **稳健性层**：3-fold expanding-window Walk-forward Validation 验证模型在不同波动阶段的稳定性
+- **Leakage 防控层**：LSTM scaler 仅 fit 训练段、XGBoost 因果特征、rolling one-step-ahead、Test 集只用一次
+
+**Result（结果）**
+
+- **P0.5 Final Test（2024-01 ~ 2025-12，24 月 OOS）**：
+  - XGBoost MAPE = 0.3558%
+  - LSTM MAPE = 0.4387%
+  - Validation-weighted Ensemble MAPE = 0.3551%，R² = 0.5664
+- **P0.6 Walk-forward（2021 / 2022 / 2023 各 12 月）**：
+  - Naive Mean MAPE = 1.02%（基准）
+  - XGBoost Mean MAPE = 1.60%
+  - LSTM Mean MAPE = 1.41%
+
+完整实验文档包含 9 项 metrics 单元测试、4 项 leakage checks、subprocess isolation 工程方案。
+
+---
+
+## 简历项目栏（标准格式）
 
 ```
-Python · pandas · numpy · Plotly · Streamlit · 数据可视化 · 时间序列分析 · 线性回归 · 置信区间 · 工业 PPI · 国家统计局数据 · 跨行业分析 · 公开数据
+2026.09 - 2026.09    中国工业 PPI 月度时间序列分析与预测平台
+                    技术栈：Python · pandas · Plotly · Streamlit · Prophet · XGBoost · PyTorch · akshare
+
+● 基于 akshare 抓取国家统计局月度 PPI 数据 132 点（2015-01 ~ 2025-12）
+● 7 模型对比：4 个统计基准 + Prophet + XGBoost + PyTorch LSTM
+● Final Test（2024-01 ~ 2025-12，24 月 OOS）：Ensemble MAPE 0.36%、R² 0.57
+● Walk-forward Validation（2021 / 2022 / 2023）：XGBoost Mean MAPE 1.60%
+● 严格 leakage 防控：因果特征 + scaler 隔离 + rolling 预测 + 子进程隔离
+● Streamlit Cloud 部署：civil-engineering-ppi.streamlit.app
+● GitHub：jinliangyue/civil-engineering-dashboard
 ```
 
-## 简历 STAR 法则版本
-
-**Situation（背景）**：
-中国工程造价的核心是材料价格管理。PPI（工业生产者出厂价格指数）是材料调差公式的关键基准，但现有公开数据散落在统计局各分类入口，缺乏跨行业对比工具。
-
-**Task（任务）**：
-构建一个基于公开 PPI 数据的 4 大工业行业（黑色/有色金属冶炼 + 黑色/有色金属矿采选）跨年度分析平台，覆盖 2015-2025 共 11 年。
-
-**Action（行动）**：
-- 数据层：双轨数据源——年度 4 行业 × 11 年 = 44 点（公开 PPI 指数整理）+ 月度 132 点（akshare 从统计局自动抓取的真实月度数据）
-- 分析层：用 pandas 做清洗 + 趋势分析（线性回归 R² + 斜率）+ 同比变动 + 跨行业相关性矩阵
-- 预测层：双线预测——scipy 做 2026-2028 线性回归 + Prophet / XGBoost / LSTM 三模型月度 12 个月预测（特征工程含 lag1/3/6/12 + 滚动 3/6/12 月均值 + 同比环比）
-- 应用层：Plotly 交互式图表 + Streamlit 7 Tab 多页仪表盘 + Streamlit Cloud 部署 + Git 自动化
-
-**Result（结果）**：
-- 部署上线，提供公开访问链接（Streamlit Cloud）
-- 发现关键洞察：黑色金属冶炼与黑色金属矿采选价格高度相关（R=0.91），符合产业链上下游联动规律
-- LSTM 超参调优：18 组合 × 3 折时间序列 CV 找到最优（units=64, dropout=0.1, seq_length=6），MAPE 从 0.60% 降到 0.37%
-- 集成模型：反比 MAPE 加权（XGBoost 52% + LSTM 39% + Prophet 9%），集成 MAPE=0.24% 比单一最强模型低 15%
-- 预测 2026 年有色金属冶炼 PPI=110.4，黑色金属冶炼 PPI=98.9
+---
 
 ## 面试讲稿（5 分钟版）
 
-**开场（30 秒）**：
-这个项目是我做的工程造价材料价格分析的 demo。项目名是中国工业 PPI 跨行业分析平台。
+**开场（30 秒）**
 
-**数据（1 分钟）**：
-- 数据来源是国家统计局公开的工业生产者出厂价格指数（PPI）
-- 覆盖 4 个工业行业：黑色金属冶炼、有色金属冶炼、黑色金属矿采选、有色金属矿采选
-- 时间跨度 2015-2025 共 11 年 × 4 个行业 = 44 个年度数据点 + akshare 抓取的 132 个月度真实数据点
-- PPI 是工程造价里「材料调差公式」的核心基准
+这是 PPI 月度时间序列预测平台，132 个真实月度数据点，7 个模型对比，严格 OOS 评估。
 
-**方法（1.5 分钟）**：
-- 用了 pandas 做数据清洗 + 4 个行业的同比变动计算
-- 用 scipy 做了长期趋势的线性回归，每个行业计算了斜率、R²、年均变动
-- 跨行业相关性用 4 × 4 相关性矩阵，发现产业链上下游高度相关（黑色冶炼 vs 黑色矿采选 R=0.91）
-- 用线性回归做 2026-2028 年度预测，带 95% 置信区间
-- 月度时间序列预测：Prophet（捕获年度季节性）+ XGBoost（特征工程）+ LSTM（神经网络）三模型对比
+**数据（1 分钟）**
 
-**技术栈（1 分钟）**：
-- 后端 Python + pandas + numpy + scipy + scikit-learn
-- 机器学习：Prophet（时间序列）+ XGBoost（梯度提升）+ TensorFlow/Keras（LSTM）
-- 数据抓取：akshare（统计局月度 PPI 自动抓取）
-- 可视化用 Plotly（不是 matplotlib，因为需要交互式）
-- Web 框架用 Streamlit，部署到 Streamlit Cloud
-- 代码完全开源在 GitHub
+通过 akshare 从国家统计局抓取 132 个月度 PPI 数据（2015-01 ~ 2025-12）。这是真实数据，不是模拟，也不是手工估算。我做数据获取时遇到 4 个数据源都失败（我的钢铁需要企业认证、Kaggle 数据陈旧、统计局 API IP 被封），最终用 akshare 间接抓取成功——展示面对限制的应变能力。
 
-**结尾（1 分钟）**：
-这个项目让我对工程造价的「数据驱动决策」有了实操理解。如果去贵公司的 BIM 工程师 / 智慧工地工程师 / 工程信息化岗位，我能用 Python + 数据分析能力帮公司做更多工程造价相关的数据分析工作。
+**方法（2 分钟）**
 
-## 面试讲稿（15 分钟深度版）
+严格 Train/Validation/Test 划分 84/24/24。Final Test 区间 2024-2025，24 个月严格 OOS，Test 只能用于最终评估。
 
-**开场（2 分钟）**：
-- 项目主题介绍 + 选题动机
-- 为什么选 PPI 而不是绝对价格
-- 为什么选这 4 个行业（产业链上下游）
+评估 7 个模型：4 个统计基准（Naive、Seasonal Naive、MA、SES）、Prophet、XGBoost、PyTorch LSTM。XGBoost 用 15 个手工因果特征（lag + rolling + 同比环比），全部 shift(1) 保证因果性。LSTM 用 P0.3 锁定的网格搜索参数。
 
-**数据层（3 分钟）**：
-- 数据源调研过程（我的钢铁网 / 兰格钢铁网 / 水泥网都需要企业认证 → 国家统计局 → 兜底方案）
-- 字段映射逻辑
-- 数据质量评估方法
+集成层：Validation 反比 MAPE 加权，权重在 Test 评估前锁定，Test 不参与权重计算。
 
-**分析层（5 分钟）**：
-- 趋势分析的 4 个指标（斜率、R²、年均变动、总变动%）
-- 同比变动的工程意义（2021 年 4 个行业都涨 = 疫情后基建拉动；2023 年黑色冶炼跌 = 房地产下行）
-- 跨行业相关性的工程意义（黑色冶炼 + 黑色矿采选 R=0.91 = 产业链联动）
-- 预测方法选择（为什么不用 Prophet 用线性回归：样本点太少，11 个点用 Prophet 过拟合）
+**结果（1 分钟）**
 
-**工程实现（3 分钟）**：
-- 代码模块化（数据加载 / 清洗 / 分析 / 可视化分离）
-- Streamlit 多页应用架构
-- Plotly vs matplotlib 选择（交互式 vs 静态）
-- Streamlit Cloud 部署 + Git 自动化
+Final Test：XGBoost MAPE 0.36%、LSTM MAPE 0.44%、Ensemble MAPE 0.36%、R² 0.57。
 
-**总结（2 分钟）**：
-- 项目对工程造价工作的实际价值
-- 局限性（年度数据而非月度，预测精度有限）
-- 未来改进方向（如果加入月度数据 + 更多行业 + 真实造价数据）
+Walk-forward（2021/2022/2023 各 12 个月）：XGBoost Mean MAPE 1.60%、LSTM Mean MAPE 1.41%、Naive 1.02%——复杂模型在多年稳健性测试中并未显著超过 Naive baseline，这反映了 132 点的样本约束。
+
+**结尾（30 秒）**
+
+项目展示了完整的数据获取 → 严格评估 → leakage 防控 → 集成学习工程实现 → 稳健性验证的端到端流程。所有数字都经过 9 项单元测试和 4 项 leakage 审计。技术栈：Python · akshare · Prophet · XGBoost · PyTorch · Streamlit。
 
 ---
 
-## 简历附带的链接清单
+## 15 分钟深度讲稿重点
 
-```
-GitHub 仓库：https://github.com/jinliangyue/civil-engineering-dashboard
-Streamlit Cloud：https://civil-engineering-ppi.streamlit.app/
-项目文档：docs/ 目录下 5 份
-README：根目录 README.md
-```
+详细见 `docs/interview_script_ml.md`。
 
-简历项目栏示例：
-
-```
-2026.09 - 2026.09    中国工业 PPI 跨行业分析平台
-                    技术栈：Python / pandas / Plotly / Streamlit
-                    ● 基于国家统计局公开 PPI 数据，覆盖 4 大工业行业 × 11 年数据
-                    ● 实现长期趋势分析、跨行业相关性矩阵、2026-2028 预测
-                    ● Plotly 交互式可视化 + Streamlit Cloud 部署上线
-                    ● GitHub:（链接）  Demo:（链接）
-```
+要点：
+- 为什么选择 PPI 作为预测目标
+- 为什么 4 个统计基准必须存在（不是凑数）
+- LSTM 在小样本下的局限性（132 点不足以让 LSTM 优于树模型）
+- XGBoost 因果特征工程细节（shift(1) 修复 leakage）
+- Ensemble 权重设计的逻辑（反比 MAPE）
+- 为什么 Final Test 在低波动期结果不能过度解读
+- Walk-forward 与 Final Test 的不同目的
+- XGBoost subprocess isolation 工程细节
 
 ---
 
-## 不同公司可调整的措辞
+## 重要禁忌（写简历时不要做的事）
 
-**中建/中铁/中交（强调工程造价 + 信息化）**：
-> 基于国家统计局 PPI 公开数据（工程造价材料调差核心基准），构建了 4 大工业行业跨年度价格走势分析平台。
+**禁止使用**：
+- 集成 MAPE = 0.24%（旧 leaky 实验，已废弃）
+- 集成比最强 XGBoost 低 15%（同上）
+- LSTM R² = -0.74 → 0.61（旧 TF 时代）
+- XGBoost Test MAPE = 0.283%（旧 leaky）
+- 44 个手工估算数据点（已删除）
+- 旧 2026 forecast 数字（98.9 / 106.5 / 110.4 / 116.0）
+- "准确率 99.65%" 这类宣传性数字
+- "预测准确" 而非 "MAPE"
 
-**设计院/BIM 公司（强调数据分析 + BIM）**：
-> 基于国家统计局 PPI 数据，构建了材料价格趋势分析平台。实现了 4 个细分行业的相关性分析和预测模型。
-
-**互联网/科技公司（强调技术深度）**：
-> 基于公开宏观经济数据，构建了时间序列分析平台。采用 pandas + Plotly + Streamlit 全栈实现，包含数据清洗、趋势分析、相关性矩阵、回归预测、交互式可视化 5 个模块。
-
----
-
-## 注意事项
-
-1. **数据真实性（2026-09-02 升级后）**：
-   - **月度 132 点数据**：akshare.macro_china_ppi() 间接从国家统计局抓取的真实数据——简历上直接说「132 个月度真实数据点」即可
-   - **年度 44 点分行业数据**：基于公开 PPI 指数范围整理的兜底估算——简历上可以说「基于国家统计局公开 PPI 指数整理」，如果面试官追问，可以说：「年度数据基于公开指数范围整理；月度数据用 akshare 直接从统计局抓取的真实月度数据，简历上诚实标注了双轨数据源」
-2. **避免过度包装**：项目本身只是课程作业级别，不是商用系统。不要说「全栈工程」「大型平台」等夸张词。
-3. **重点突出技术栈 + 工程思维**：让面试官看到你会 Python + 数据分析 + 机器学习（XGBoost/LSTM/Prophet）+ Web 部署 + 数据抓取 + 工程化能力。
-4. **机器学习深度**：月度 LSTM 在 132 点上 R²=-0.74（过拟合），面试官问就说「样本量仍是 LSTM 实际应用的边界，Prophet 在月度季节性上表现更稳」——诚实说反而加分。
-
----
-
-## 给 Gemini 的 prompt（让 Gemini 优化简历描述）
-
-```
-我有一个 GitHub 项目：中国工业 PPI 跨行业分析平台
-技术栈：Python + pandas + Plotly + Streamlit
-数据：国家统计局 PPI（4 个行业 × 11 年）
-功能：趋势分析 + 跨行业相关性 + 同比变动 + 2026-2028 预测
-部署：Streamlit Cloud
-我的身份：22 岁大四，求职目标中建/中铁/中交工程信息化岗位
-
-帮我写 3 个版本的简历项目描述：
-1. 100 字版本（项目栏短描述）
-2. 200 字版本（项目栏完整描述）
-3. STAR 法则版本（详细描述）
-
-要求：
-- 突出技术能力 + 工程思维
-- 不夸张（实事求是）
-- 让面试官 30 秒内看懂项目价值
-- 用关键词匹配 BIM / 智慧工地 / 工程信息化岗位 JD
-```
+**只使用**：
+- 132 真实月度观测（akshare）
+- 7 模型对比
+- P0.5 Final Test 真实数字
+- P0.6 Walk-forward 真实数字
+- 完整 leakage 防控流程
+- "PPI forecasting" 而非 "工程造价预测"
+- MAPE / MAE / RMSE / R²（不使用"准确率"）
+- "Walk-forward validation" 而非 "模型准确"
