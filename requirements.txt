@@ -1,4 +1,5 @@
 pandas
+setuptools<81
 numpy
 scipy
 plotly
