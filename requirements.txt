@@ -12,5 +12,5 @@ openpyxl
 jupyter
 notebook
 xgboost
-tensorflow
+torch
 akshare

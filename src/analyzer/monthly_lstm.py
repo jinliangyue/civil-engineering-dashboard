@@ -1,17 +1,17 @@
 """
-月度 PPI 时间序列预测模块
-功能：用 akshare 抓取的 132 个月度真实数据点（2015-2025）训练 LSTM + Prophet + XGBoost 三模型对比
+月度 PPI 时间序列预测模块（PyTorch 版）
+功能：用 akshare 抓取的 132 个月度真实数据点（2015-2025）训练 Prophet + XGBoost + LSTM（PyTorch）三模型对比
 作者：十八 · 22 岁土木工程准大四 · 2026 秋招简历项目
 
 数据来源：akshare.macro_china_ppi() 间接从国家统计局月度发布的 PPI 总指数
-样本规模：132 月度点（远超 LSTM 阈值）
+样本规模：132 月度点
 窗口设置：seq_length=12（月度季节性捕获）
 训练/测试划分：2015-2023 训练（108 点），2024-2025 测试（24 点）
 """
 
 import pandas as pd
 import numpy as np
-from typing import Dict, Tuple, Optional
+from typing import Dict
 import logging
 import warnings
 
@@ -44,33 +44,23 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict:
 
 
 def build_features_monthly(df: pd.DataFrame, target_col: str = 'ppi_index') -> pd.DataFrame:
-    """
-    月度数据特征工程
-    - 滞后特征（lag1, lag3, lag6, lag12）
-    - 滚动均值（3 月 / 6 月 / 12 月）
-    - 时间特征（年 / 月 / 季度 / 是否年初）
-    """
+    """月度数据特征工程"""
     df = df.sort_values('date').reset_index(drop=True).copy()
     df['year'] = df['date'].dt.year
     df['month'] = df['date'].dt.month
     df['quarter'] = df['date'].dt.quarter
-    # 滞后特征
     for lag in [1, 3, 6, 12]:
         df[f'lag_{lag}'] = df[target_col].shift(lag)
-    # 滚动统计
     for window in [3, 6, 12]:
         df[f'rolling_mean_{window}'] = df[target_col].rolling(window=window).mean()
         df[f'rolling_std_{window}'] = df[target_col].rolling(window=window).std()
-    # 同比（去年同期）
     df['yoy_change'] = df[target_col] - df[target_col].shift(12)
-    # 环比（上一月）
     df['mom_change'] = df[target_col] - df[target_col].shift(1)
     df = df.dropna().reset_index(drop=True)
     return df
 
 
 def get_monthly_feature_columns() -> list:
-    """月度特征列名清单"""
     return [
         'year', 'month', 'quarter',
         'lag_1', 'lag_3', 'lag_6', 'lag_12',
@@ -80,14 +70,8 @@ def get_monthly_feature_columns() -> list:
     ]
 
 
-def train_prophet_monthly(
-    df: pd.DataFrame,
-    target_col: str = 'ppi_index',
-    forecast_months: int = 12,
-) -> Dict:
-    """
-    Prophet 月度预测（最擅长月度时间序列）
-    """
+def train_prophet_monthly(df: pd.DataFrame, target_col: str = 'ppi_index', forecast_months: int = 12) -> Dict:
+    """Prophet 月度预测"""
     try:
         from prophet import Prophet
     except ImportError:
@@ -122,16 +106,8 @@ def train_prophet_monthly(
         return {'status': 'error', 'reason': str(e)}
 
 
-def train_xgboost_monthly(
-    df_features: pd.DataFrame,
-    feature_cols: list,
-    target_col: str = 'ppi_index',
-    test_months: int = 24,
-    forecast_months: int = 12,
-) -> Dict:
-    """
-    XGBoost 月度预测（基于特征工程）
-    """
+def train_xgboost_monthly(df_features, feature_cols, target_col='ppi_index', test_months=24, forecast_months=12) -> Dict:
+    """XGBoost 月度预测"""
     try:
         from xgboost import XGBRegressor
     except ImportError:
@@ -146,23 +122,13 @@ def train_xgboost_monthly(
         y_train = train[target_col]
         X_test = test[feature_cols]
         y_test = test[target_col]
-        model = XGBRegressor(
-            n_estimators=200,
-            max_depth=4,
-            learning_rate=0.05,
-            random_state=42,
-            verbosity=0,
-        )
+        model = XGBRegressor(n_estimators=200, max_depth=4, learning_rate=0.05, random_state=42, verbosity=0)
         model.fit(X_train, y_train)
         y_pred_test = model.predict(X_test)
         metrics = calculate_metrics(y_test.values, y_pred_test)
         y_pred_train = model.predict(X_train)
         train_metrics = calculate_metrics(y_train.values, y_pred_train)
-        feature_importance = pd.Series(
-            model.feature_importances_,
-            index=feature_cols,
-        ).sort_values(ascending=False)
-        # 递归预测未来 forecast_months
+        feature_importance = pd.Series(model.feature_importances_, index=feature_cols).sort_values(ascending=False)
         future_predictions = []
         last_row = df_features.iloc[-1].copy()
         history = df_features[[target_col]].copy()
@@ -171,11 +137,8 @@ def train_xgboost_monthly(
             next_year = next_date.year
             next_month = next_date.month
             next_quarter = (next_month - 1) // 3 + 1
-            # 构造特征
             feat = {
-                'year': next_year,
-                'month': next_month,
-                'quarter': next_quarter,
+                'year': next_year, 'month': next_month, 'quarter': next_quarter,
             }
             for lag in [1, 3, 6, 12]:
                 feat[f'lag_{lag}'] = history[target_col].iloc[-lag] if len(history) >= lag else history[target_col].iloc[-1]
@@ -186,10 +149,7 @@ def train_xgboost_monthly(
             feat['mom_change'] = history[target_col].iloc[-1] - history[target_col].iloc[-2] if len(history) >= 2 else 0
             X_future = pd.DataFrame([feat])[feature_cols]
             pred = float(model.predict(X_future)[0])
-            future_predictions.append({
-                'date': next_date,
-                'predicted_ppi': pred,
-            })
+            future_predictions.append({'date': next_date, 'predicted_ppi': pred})
             history = pd.concat([history, pd.DataFrame({target_col: [pred]})], ignore_index=True)
         return {
             'status': 'success',
@@ -206,98 +166,154 @@ def train_xgboost_monthly(
         return {'status': 'error', 'reason': str(e)}
 
 
-def train_lstm_monthly(
+def train_lstm_pytorch(
     df: pd.DataFrame,
     target_col: str = 'ppi_index',
     seq_length: int = 12,
     test_months: int = 24,
     forecast_months: int = 12,
-    epochs: int = 50,
+    hidden_size: int = 64,
+    num_layers: int = 2,
+    dropout: float = 0.1,
+    epochs: int = 100,
+    lr: float = 0.001,
 ) -> Dict:
-    """
-    LSTM 月度预测（用 132 月度点真训练，窗口 12 月捕获季节性）
-    """
+    """LSTM 月度预测（PyTorch 版）"""
     try:
-        import tensorflow as tf
-        from tensorflow.keras.models import Sequential
-        from tensorflow.keras.layers import LSTM, Dense, Dropout
-        from sklearn.preprocessing import StandardScaler
-        # 抑制 TF 日志
-        tf.get_logger().setLevel('ERROR')
+        import torch
+        import torch.nn as nn
     except ImportError:
-        return {'status': 'error', 'reason': 'tensorflow not installed'}
+        return {'status': 'error', 'reason': 'torch not installed'}
     if len(df) < seq_length + test_months + 1:
         return {'status': 'error', 'reason': f'数据不足（需要至少 {seq_length + test_months + 1} 个月）'}
     try:
+        # 设种子保证可复现
+        torch.manual_seed(42)
+        np.random.seed(42)
+
         values = df[target_col].values.astype(float)
-        # 划分
         split_idx = len(values) - test_months
         train_values = values[:split_idx]
         test_values = values[split_idx:]
-        # 归一化
-        scaler = StandardScaler()
-        train_scaled = scaler.fit_transform(train_values.reshape(-1, 1)).flatten()
-        test_scaled = scaler.transform(test_values.reshape(-1, 1)).flatten()
-        # 构造序列（返回 3D：[样本数, seq_length, 1] 适配 LSTM）
-        def make_sequences(data, seq_len):
+
+        # 标准化
+        mean = train_values.mean()
+        std = train_values.std()
+        if std == 0:
+            std = 1
+        train_scaled = (train_values - mean) / std
+        test_scaled = (test_values - mean) / std
+
+        # 构造序列
+        def make_seq(data):
             X, y = [], []
-            for i in range(len(data) - seq_len):
-                X.append(data[i:i + seq_len].reshape(-1, 1))  # 每步 reshape 成 (seq_len, 1)
-                y.append(data[i + seq_len])
-            return np.array(X), np.array(y)
-        X_train_seq, y_train_seq = make_sequences(train_scaled, seq_length)
-        X_test_seq, y_test_seq = make_sequences(test_scaled, seq_length)
-        # LSTM 模型（用 Input 层显式声明避免 TF 2.20 unknown rank 错误）
-        from tensorflow.keras.layers import Input
-        model = Sequential([
-            Input(shape=(seq_length, 1)),
-            LSTM(32, return_sequences=True),
-            Dropout(0.2),
-            LSTM(16, return_sequences=False),
-            Dropout(0.2),
-            Dense(8, activation='relu'),
-            Dense(1),
-        ])
-        model.compile(optimizer='adam', loss='mse', metrics=['mae'])
-        model.fit(X_train_seq, y_train_seq, epochs=epochs, batch_size=8, verbose=0, validation_split=0.1)
+            for i in range(len(data) - seq_length):
+                X.append(data[i:i + seq_length])
+                y.append(data[i + seq_length])
+            return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
+
+        X_train_seq, y_train_seq = make_seq(train_scaled)
+        X_test_seq, y_test_seq = make_seq(test_scaled)
+        X_train_t = torch.from_numpy(X_train_seq).unsqueeze(-1)  # (n, seq, 1)
+        y_train_t = torch.from_numpy(y_train_seq).unsqueeze(-1)  # (n, 1)
+        X_test_t = torch.from_numpy(X_test_seq).unsqueeze(-1)
+
+        # 模型定义
+        class LSTMModel(nn.Module):
+            def __init__(self, hidden_size, num_layers, dropout):
+                super().__init__()
+                self.lstm = nn.LSTM(
+                    input_size=1,
+                    hidden_size=hidden_size,
+                    num_layers=num_layers,
+                    batch_first=True,
+                    dropout=dropout if num_layers > 1 else 0.0,
+                )
+                self.fc = nn.Sequential(
+                    nn.Linear(hidden_size, 8),
+                    nn.ReLU(),
+                    nn.Linear(8, 1),
+                )
+
+            def forward(self, x):
+                lstm_out, _ = self.lstm(x)
+                last = lstm_out[:, -1, :]  # (batch, hidden)
+                return self.fc(last)
+
+        model = LSTMModel(hidden_size, num_layers, dropout)
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+        # 训练 + Early Stopping
+        best_loss = float('inf')
+        best_state = None
+        patience = 15
+        no_improve = 0
+        batch_size = 8
+        for epoch in range(epochs):
+            model.train()
+            perm = np.random.permutation(len(X_train_t))
+            epoch_loss = 0
+            for i in range(0, len(X_train_t), batch_size):
+                idx = perm[i:i + batch_size]
+                xb = X_train_t[idx]
+                yb = y_train_t[idx]
+                optimizer.zero_grad()
+                pred = model(xb)
+                loss = criterion(pred, yb)
+                loss.backward()
+                optimizer.step()
+                epoch_loss += loss.item() * len(xb)
+            epoch_loss /= len(X_train_t)
+            if epoch_loss < best_loss:
+                best_loss = epoch_loss
+                best_state = {k: v.clone() for k, v in model.state_dict().items()}
+                no_improve = 0
+            else:
+                no_improve += 1
+                if no_improve >= patience:
+                    break
+        if best_state is not None:
+            model.load_state_dict(best_state)
+
         # 测试集评估
-        y_pred_test_scaled = model.predict(X_test_seq, verbose=0).flatten()
-        y_pred_test = scaler.inverse_transform(y_pred_test_scaled.reshape(-1, 1)).flatten()
+        model.eval()
+        with torch.no_grad():
+            y_pred_test_scaled = model(X_test_t).numpy().flatten()
+        y_pred_test = y_pred_test_scaled * std + mean
         y_true_test = test_values[seq_length:]
         metrics = calculate_metrics(y_true_test, y_pred_test)
         # 训练集评估
-        y_pred_train_scaled = model.predict(X_train_seq, verbose=0).flatten()
-        y_pred_train = scaler.inverse_transform(y_pred_train_scaled.reshape(-1, 1)).flatten()
+        with torch.no_grad():
+            y_pred_train_scaled = model(X_train_t).numpy().flatten()
+        y_pred_train = y_pred_train_scaled * std + mean
         y_true_train = train_values[seq_length:]
         train_metrics = calculate_metrics(y_true_train, y_pred_train)
+
         # 递归预测未来 forecast_months
         future_predictions = []
-        # 用最后 seq_length 个点（含测试集末尾）作为初始窗口
-        last_seq = scaler.transform(values[-seq_length:].reshape(-1, 1)).flatten()
-        current_seq = last_seq.copy().reshape(-1, 1)
-        for _ in range(forecast_months):
-            pred_scaled = model.predict(
-                current_seq.reshape(1, seq_length, 1), verbose=0
-            )[0][0]
-            pred = float(scaler.inverse_transform([[pred_scaled]])[0][0])
-            next_date = df['date'].iloc[-1] + pd.DateOffset(months=len(future_predictions) + 1)
-            future_predictions.append({
-                'date': next_date,
-                'predicted_ppi': pred,
-            })
-            current_seq = np.append(current_seq[1:], pred_scaled)
+        last_seq = ((values[-seq_length:] - mean) / std).astype(np.float32)
+        current_seq = torch.from_numpy(last_seq).unsqueeze(0).unsqueeze(-1)  # (1, seq, 1)
+        with torch.no_grad():
+            for _ in range(forecast_months):
+                pred_scaled = model(current_seq).item()
+                pred = pred_scaled * std + mean
+                next_date = df['date'].iloc[-1] + pd.DateOffset(months=len(future_predictions) + 1)
+                future_predictions.append({'date': next_date, 'predicted_ppi': pred})
+                # 滚动窗口
+                new_seq = torch.cat([current_seq[:, 1:, :], torch.tensor([[[pred_scaled]]], dtype=torch.float32)], dim=1)
+                current_seq = new_seq
+
         return {
             'status': 'success',
-            'model': model,
             'metrics': metrics,
             'train_metrics': train_metrics,
             'future_predictions': future_predictions,
-            'test_predictions': y_pred_test,
-            'test_actual': y_true_test,
-            'test_dates': df['date'].iloc[split_idx + seq_length:].values,
         }
     except Exception as e:
-        logger.error(f'LSTM 月度训练失败: {e}')
+        logger.error(f'LSTM PyTorch 训练失败: {e}')
+        import traceback
+        traceback.print_exc()
         return {'status': 'error', 'reason': str(e)}
 
 
@@ -306,12 +322,17 @@ def train_all_monthly_models(
     target_col: str = 'ppi_index',
     test_months: int = 24,
     forecast_months: int = 12,
+    lstm_params: dict = None,
 ) -> Dict:
     """
-    训练月度三模型（Prophet + XGBoost + LSTM）+ 评估对比
+    训练月度三模型（Prophet + XGBoost + LSTM PyTorch）+ 评估对比
+    lstm_params: {'hidden_size': 64, 'num_layers': 2, 'dropout': 0.1, 'seq_length': 12, 'epochs': 100}
     """
     if df.empty:
         return {'status': 'error', 'reason': '输入数据为空'}
+    if lstm_params is None:
+        lstm_params = {'hidden_size': 64, 'num_layers': 2, 'dropout': 0.1, 'seq_length': 12, 'epochs': 100}
+
     result = {
         'status': 'success',
         'total_points': len(df),
@@ -321,7 +342,9 @@ def train_all_monthly_models(
             'start': df['date'].min().strftime('%Y-%m-%d'),
             'end': df['date'].max().strftime('%Y-%m-%d'),
         },
+        'lstm_params': lstm_params,
     }
+
     # Prophet
     prophet_result = train_prophet_monthly(df, target_col, forecast_months)
     if prophet_result.get('status') == 'success':
@@ -330,12 +353,11 @@ def train_all_monthly_models(
             'forecast': prophet_result['forecast'],
             'historical_fit': prophet_result['historical_fit'],
         }
-    # XGBoost（需要先特征工程）
+
+    # XGBoost
     df_features = build_features_monthly(df, target_col)
     feature_cols = get_monthly_feature_columns()
-    xgb_result = train_xgboost_monthly(
-        df_features, feature_cols, target_col, test_months, forecast_months
-    )
+    xgb_result = train_xgboost_monthly(df_features, feature_cols, target_col, test_months, forecast_months)
     if xgb_result.get('status') == 'success':
         result['xgboost'] = {
             'metrics': xgb_result['metrics'],
@@ -343,10 +365,18 @@ def train_all_monthly_models(
             'feature_importance': xgb_result['feature_importance'].to_dict(),
             'future_predictions': xgb_result['future_predictions'],
         }
-    # LSTM
-    lstm_result = train_lstm_monthly(
-        df, target_col, seq_length=12, test_months=test_months,
-        forecast_months=forecast_months, epochs=50,
+
+    # LSTM（PyTorch）
+    lstm_result = train_lstm_pytorch(
+        df, target_col,
+        seq_length=lstm_params.get('seq_length', 12),
+        test_months=test_months,
+        forecast_months=forecast_months,
+        hidden_size=lstm_params.get('hidden_size', 64),
+        num_layers=lstm_params.get('num_layers', 2),
+        dropout=lstm_params.get('dropout', 0.1),
+        epochs=lstm_params.get('epochs', 100),
+        lr=lstm_params.get('lr', 0.001),
     )
     if lstm_result.get('status') == 'success':
         result['lstm'] = {
@@ -354,6 +384,9 @@ def train_all_monthly_models(
             'train_metrics': lstm_result['train_metrics'],
             'future_predictions': lstm_result['future_predictions'],
         }
+    else:
+        logger.warning(f'LSTM 训练失败: {lstm_result.get("reason")}')
+
     return result
 
 
@@ -367,12 +400,12 @@ if __name__ == '__main__':
     if df.empty:
         print('没有月度数据')
     else:
-        print(f'\n数据: {len(df)} 个月度点')
+        print(f'数据: {len(df)} 月')
         result = train_all_monthly_models(df, test_months=24, forecast_months=12)
-        print('\n=== 月度训练结果 ===')
-        if 'prophet' in result:
-            print(f"Prophet 评估: {result['prophet']['metrics']}")
-        if 'xgboost' in result:
-            print(f"XGBoost 评估: {result['xgboost']['metrics']}")
-        if 'lstm' in result:
-            print(f"LSTM 评估: {result['lstm']['metrics']}")
+        print('\n=== 月度三模型评估对比 ===')
+        for m in ['prophet', 'xgboost', 'lstm']:
+            if m in result:
+                met = result[m]['metrics']
+                print(f"{m.upper():<10} MAE={met['MAE']:<6} RMSE={met['RMSE']:<6} MAPE%={met['MAPE_pct']:<6} R²={met['R_squared']}")
+            else:
+                print(f'{m.upper():<10} 失败')
