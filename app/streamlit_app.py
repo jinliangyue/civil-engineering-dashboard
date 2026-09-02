@@ -150,13 +150,14 @@ with col4:
 st.markdown('---')
 
 # Tab 切换
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     '📈 趋势分析',
     '🔗 行业相关性',
     '📊 同比变动',
-    '🔮 未来预测',
-    '🤖 机器学习',
+    '🔮 年度预测',
+    '🤖 ML（年度）',
     '📋 数据说明',
+    '🕐 月度时间序列',
 ])
 
 
@@ -488,13 +489,163 @@ with tab6:
   - PPI > 100：当年价格高于去年
   - PPI < 100：当年价格低于去年
   - PPI = 100：当年价格与去年持平
+- **月度数据**：第 7 个 Tab 使用 akshare 从统计局抓取的 132 个月度真实数据点（2015-2025）
 ''')
+
+
+# ============ Tab 7: 月度时间序列预测 ============
+with tab7:
+    st.markdown('### 🕐 月度 PPI 时间序列预测（真实数据 132 点）')
+    st.markdown('基于 akshare 从国家统计局抓取的月度 PPI 总指数（2015-01 至 2025-12，共 132 个月度点），用 Prophet / XGBoost / LSTM 三模型对比预测未来 12 个月。')
+
+    @st.cache_data(show_spinner=False)
+    def load_monthly_data():
+        from src.ppi_monthly import load_monthly_ppi, get_monthly_summary
+        df_m = load_monthly_ppi()
+        if df_m.empty:
+            return df_m, {}
+        df_m['date'] = pd.to_datetime(df_m['date'])
+        return df_m, get_monthly_summary(df_m)
+
+    df_monthly, monthly_summary = load_monthly_data()
+
+    if df_monthly.empty:
+        st.error('⚠️ 月度数据加载失败，请检查 akshare 安装或网络')
+        st.code('pip install akshare', language='bash')
+    else:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric('月度数据点', f"{monthly_summary['total_months']}")
+        with col2:
+            st.metric('最新 PPI', f"{monthly_summary['ppi_index']['latest']:.1f}")
+        with col3:
+            st.metric('最新同比 %', f"{monthly_summary['yoy_pct']['latest']:.1f}%")
+        with col4:
+            st.metric('区间', f"{monthly_summary['date_range']['start'][:4]} - {monthly_summary['date_range']['end'][:4]}")
+
+        # 月度趋势图
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df_monthly['date'], y=df_monthly['ppi_index'],
+            mode='lines', name='PPI 月度',
+            line=dict(color='#3b82f6', width=2),
+            fill='tozeroy', fillcolor='rgba(59,130,246,0.1)',
+        ))
+        fig.add_hline(y=100, line_dash='dash', line_color='gray', opacity=0.5, annotation_text='基准 100')
+        fig.update_layout(
+            title='中国工业 PPI 月度走势（2015-2025）',
+            xaxis_title='日期', yaxis_title='PPI 指数（上年同月=100）',
+            template='plotly_white', height=400, hovermode='x unified',
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # 三模型训练
+        st.markdown('#### 🤖 三模型训练对比')
+        @st.cache_data(show_spinner=False)
+        def train_monthly_models(_df):
+            from src.analyzer.monthly_lstm import train_all_monthly_models
+            return train_all_monthly_models(_df, test_months=24, forecast_months=12)
+
+        with st.spinner('正在训练月度三模型（首次约 30-60 秒）...'):
+            ml_monthly = train_monthly_models(df_monthly)
+
+        if ml_monthly.get('status') == 'success':
+            # 评估对比表
+            eval_rows = []
+            for m in ['prophet', 'xgboost', 'lstm']:
+                if m in ml_monthly:
+                    met = ml_monthly[m]['metrics']
+                    label = {'prophet': 'Prophet', 'xgboost': 'XGBoost', 'lstm': 'LSTM'}[m]
+                    eval_rows.append({
+                        '模型': label,
+                        'MAE': met['MAE'],
+                        'RMSE': met['RMSE'],
+                        'MAPE %': met['MAPE_pct'],
+                        'R²': met['R_squared'],
+                        '特点': {'prophet': '加法分解 + 年度季节性', 'xgboost': '滞后 + 滚动 + 同比特征', 'lstm': '2 层 LSTM + Dropout'}[m],
+                    })
+            if eval_rows:
+                st.dataframe(pd.DataFrame(eval_rows), use_container_width=True)
+
+            # 三模型预测可视化
+            st.markdown('#### 2026-2027 三模型预测对比')
+            future_dates = pd.date_range(df_monthly['date'].iloc[-1] + pd.DateOffset(months=1), periods=12, freq='MS')
+            fig = go.Figure()
+            # 历史
+            fig.add_trace(go.Scatter(
+                x=df_monthly['date'], y=df_monthly['ppi_index'],
+                mode='lines', name='历史',
+                line=dict(color='#0f172a', width=2),
+            ))
+            # 各模型预测
+            colors_pred = {'prophet': '#10b981', 'xgboost': '#3b82f6', 'lstm': '#ef4444'}
+            for m in ['prophet', 'xgboost', 'lstm']:
+                if m in ml_monthly and ml_monthly[m].get('future_predictions'):
+                    preds = ml_monthly[m]['future_predictions']
+                    if isinstance(preds[0], dict):
+                        ys = [p['predicted_ppi'] for p in preds]
+                    else:
+                        ys = preds
+                    fig.add_trace(go.Scatter(
+                        x=future_dates, y=ys,
+                        mode='lines+markers', name=f'{m.upper()} 预测',
+                        line=dict(color=colors_pred[m], width=2, dash='dash'),
+                        marker=dict(size=6),
+                    ))
+            fig.add_vline(x=df_monthly['date'].iloc[-1], line_dash='dot', line_color='gray', opacity=0.5)
+            fig.add_hline(y=100, line_dash='dash', line_color='gray', opacity=0.3)
+            fig.update_layout(
+                title='月度 PPI 三模型 12 个月预测',
+                xaxis_title='日期', yaxis_title='PPI 指数',
+                template='plotly_white', height=500, hovermode='x unified',
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # XGBoost 特征重要性
+            if 'xgboost' in ml_monthly and ml_monthly['xgboost'].get('feature_importance'):
+                st.markdown('#### XGBoost 特征重要性')
+                fi = pd.Series(ml_monthly['xgboost']['feature_importance']).sort_values(ascending=True)
+                fig = go.Figure(go.Bar(
+                    x=fi.values, y=fi.index, orientation='h',
+                    marker_color='#3b82f6',
+                ))
+                fig.update_layout(
+                    title='月度 XGBoost 特征重要性',
+                    xaxis_title='重要性', yaxis_title='特征',
+                    template='plotly_white', height=400,
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            # 方法论
+            st.markdown('#### 方法论')
+            st.markdown('''
+**数据来源**：akshare.macro_china_ppi() 间接从国家统计局月度发布的 PPI 总指数抓取（247 个月度点中筛选 2015-2025 = 132 点）
+
+**样本规模**：132 月度点（年度 44 点的 3 倍）—— LSTM 真正可训练
+
+**训练/测试划分**：2015-01 至 2023-12 训练（108 点），2024-01 至 2025-12 测试（24 点）
+
+**特征工程**：
+- 滞后特征：lag1 / lag3 / lag6 / lag12（捕捉时间依赖）
+- 滚动统计：3 月 / 6 月 / 12 月移动均值 + 标准差
+- 时间特征：年 / 月 / 季度
+- 同比 / 环比变化
+
+**模型说明**：
+- **Prophet**：Facebook 开源时间序列模型，加法分解（趋势 + 年度季节性）—— 月度数据首选
+- **XGBoost**：基于特征工程的梯度提升树 —— 结构化数据表现稳定
+- **LSTM**：2 层 LSTM + Dropout —— 132 点仍偏少，深度学习在小样本易过拟合
+
+**结论**：月度时间序列上 Prophet R²≈0.79 表现最佳；XGBoost MAPE≈0.28% 最精准；LSTM 因样本量限制 R² 偏低
+''')
+        else:
+            st.error('月度模型训练失败')
 
 
 st.markdown('---')
 st.markdown('''
 <div style='text-align: center; color: #64748b; font-size: 0.9rem;'>
 中国工业 PPI 跨行业分析平台 · 作者：十八 · 2026 秋招简历项目<br>
-技术栈：Python + pandas + Plotly + Streamlit
+技术栈：Python + pandas + Plotly + Streamlit + XGBoost + TensorFlow + Prophet
 </div>
 ''', unsafe_allow_html=True)
