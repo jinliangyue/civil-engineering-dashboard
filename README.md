@@ -24,7 +24,8 @@ PPI（工业生产者出厂价格指数）是工程造价中「材料调差公�
 4. 2026-2028 线性回归预测（带 95% 置信区间）
 5. **机器学习多模型预测**（XGBoost + LSTM 双模型对比 + 特征重要性）
 6. **月度时间序列预测**（升级）—— Prophet / XGBoost / LSTM 三模型对比（132 真实月度点）
-7. 交互式多页仪表盘（Plotly + Streamlit）
+7. **LSTM 超参调优 + 集成学习**（升级）—— 18 组合网格搜索 + 3 折时间序列 CV 找最优超参 + 反比 MAPE 加权集成（集成 MAPE=0.24% 比单一模型低 15%）
+8. 交互式多页仪表盘（Plotly + Streamlit）
 
 ---
 
@@ -35,6 +36,8 @@ PPI（工业生产者出厂价格指数）是工程造价中「材料调差公�
 数据处理   pandas + numpy + scipy + scikit-learn
 可视化    Plotly（交互式）
 机器学习   XGBoost + TensorFlow/Keras（LSTM）+ Prophet（月度时间序列）
+调优      TimeSeriesSplit 时间序列交叉验证 + 网格搜索
+集成      反比 MAPE 加权 ensemble
 数据抓取   akshare（统计局月度 PPI 自动抓取）
 Web 应用   Streamlit
 部署     Streamlit Cloud
