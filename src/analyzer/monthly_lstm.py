@@ -484,22 +484,59 @@ def train_lstm_final(
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    # === Test 段 rolling one-step-ahead ===
-    # 每个 test 时刻 t 用 test_scaled[t-seq_length:t] 构造 input
-    # test_scaled 来自 test_values transform by train+val mean/std（合法）
+    # === Test 段 rolling one-step-ahead（完整 24 步覆盖 2024-01 ~ 2025-12）===
+    # 关键修复：必须从 Test 第一个点（2024-01）开始预测，输出 24 个 predictions
+    #
+    # 正确逻辑：
+    # - 初始 history = train_val_scaled（108 个 scaled 值，全部来自 Train+Val）
+    # - 预测 2024-01: input = history[-6:] = 2023-07~2023-12（来自 Train+Val，合法）
+    # - 把 2024-01 actual 加入 history
+    # - 预测 2024-02: input = history[-6:] = 2023-08~2024-01（含 2024-01 actual，已发生）
+    # - ...
+    # - 预测 2025-12: input = history[-6:] = 2025-06~2025-11（不含 2025-12 actual）
+    # - 最终 output 24 predictions
+    #
+    # 边界严格保证：
+    # - 2024-01 actual 在预测 2024-01 时不可见（尚未发生）
+    # - 2025-12 actual 在预测 2025-12 时不可见（预测完成前不可用）
+    # - history 只能在当前点预测完成后追加 actual
     test_preds_scaled = []
-    for i in range(seq_length, len(test_scaled)):
-        x = test_scaled[i - seq_length:i].reshape(1, seq_length, 1).astype(np.float32)
+    # history_scaled 初始 = train_val_scaled 全部 108 个 scaled 值
+    history_scaled = list(train_val_scaled)
+
+    for t in range(len(test_scaled)):
+        # 取 history_scaled 最后 seq_length 个值
+        if len(history_scaled) < seq_length:
+            # Fallback（理论上不会触发，因为 train_val_scaled 有 108 个 > seq_length）
+            input_seq = history_scaled[:seq_length]
+        else:
+            input_seq = history_scaled[-seq_length:]
+        x = np.array(input_seq, dtype=np.float32).reshape(1, seq_length, 1)
         x_t = torch.from_numpy(x)
         model.eval()
         with torch.no_grad():
             pred_scaled = model(x_t).numpy()[0][0]
         test_preds_scaled.append(pred_scaled)
+        # 关键：把当前 test 点的真实值加入 history（用于下一步预测）
+        history_scaled.append(test_scaled[t])
+
+    # === 严格断言：24 个预测 ===
+    assert len(test_preds_scaled) == 24, (
+        f"LSTM Test predictions 数量 = {len(test_preds_scaled)} != 24。"
+        f"必须严格覆盖 2024-01 ~ 2025-12 全部 24 个月。"
+        f"Phase 2 v3.1 实验设计：24 consecutive rolling one-step-ahead predictions。"
+    )
 
     test_preds_scaled = np.array(test_preds_scaled)
     # Inverse transform
     test_preds = test_preds_scaled * std + mean
-    test_actuals = values_test[seq_length:]
+    # 全部 24 个 actual（不再切片）
+    test_actuals = values_test
+
+    # === 进一步断言：predictions 和 actuals 长度一致 ===
+    assert len(test_preds) == len(test_actuals) == 24, (
+        f"len(preds)={len(test_preds)}, len(actuals)={len(test_actuals)}, 都不等于 24"
+    )
 
     from src.evaluation.metrics import mape, mae, rmse, r2
     metrics = {
@@ -510,9 +547,10 @@ def train_lstm_final(
     }
 
     logger.info(
-        f"LSTM Test (rolling one-step-ahead, best_params from P0.3): "
+        f"LSTM Test (rolling one-step-ahead, 完整 24 步, best_params from P0.3): "
         f"MAE={metrics['MAE']:.4f} RMSE={metrics['RMSE']:.4f} "
-        f"MAPE={metrics['MAPE_pct']:.4f}% R²={metrics['R_squared']:.4f}"
+        f"MAPE={metrics['MAPE_pct']:.4f}% R²={metrics['R_squared']:.4f} "
+        f"n_pred={len(test_preds)}, n_actual={len(test_actuals)}"
     )
     return metrics, test_preds, model, (mean, std), test_actuals
 
@@ -612,6 +650,57 @@ def train_all_monthly_models(
     }
 
     return result
+
+
+# === Synthetic LSTM Leakage Test ===
+def test_synthetic_lstm_leakage(
+    train_val_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    best_params: Dict,
+    target_col: str = 'ppi_index',
+) -> Dict:
+    """
+    Synthetic LSTM Leakage Test:
+    修改 test 段某个未来 actual，验证所有 24 个 prediction 不受影响。
+
+    验证逻辑：
+    - 跑原始 test_df（正常版本），得到 24 个 predictions
+    - 修改 test_df 最后一行（2025-12）的 ppi_index 为 999.0（极端值）
+    - 再跑一次，得到 24 个 predictions
+    - 比较两次 predictions：必须完全一致
+       因为预测 2025-12 时 history_scaled[-6:] = 2025-06~2025-11 actual
+       不含 2025-12 actual 自身 → 2025-12 的修改不影响任何预测
+    """
+    # 正常版本
+    _, preds_normal, _, _, _ = train_lstm_final(
+        train_val_df, test_df, best_params, target_col
+    )
+
+    # 修改版本
+    test_modified = test_df.copy()
+    test_modified.iloc[-1, test_modified.columns.get_loc(target_col)] = 999.0
+    _, preds_modified, _, _, _ = train_lstm_final(
+        train_val_df, test_modified, best_params, target_col
+    )
+
+    if not np.allclose(preds_normal, preds_modified, atol=1e-3):
+        max_diff = float(np.max(np.abs(preds_normal - preds_modified)))
+        return {
+            'leakage_free': False,
+            'details': (
+                f"修改 test 最后一点 (2025-12) actual 为 999 后，"
+                f"24 个 predictions 中存在不一致（最大差异 {max_diff:.6f}）。"
+                f"说明 LSTM rolling 存在 future leakage。"
+            ),
+        }
+    return {
+        'leakage_free': True,
+        'details': (
+            f"修改 test 最后一点 (2025-12) actual 为 999 后，"
+            f"24 个 predictions 完全一致（最大差异 < 1e-3）。"
+            f"LSTM rolling 严格 causal，无 future leakage。"
+        ),
+    }
 
 
 # === Synthetic Leakage Test ===
