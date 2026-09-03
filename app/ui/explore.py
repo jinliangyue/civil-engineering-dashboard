@@ -141,8 +141,8 @@ def _distribution_block(df: pd.DataFrame, col: str, label: str,
     kurt_v = float(values.kurtosis())
 
     X.kpi_cards([
-        ('Mean', f'{mean_v:.2f}{unit}', label),
-        ('Median', f'{med_v:.2f}{unit}', label),
+        ('Mean', f'{mean_v:.2f}', label),
+        ('Median', f'{med_v:.2f}', label),
         ('Skewness', f'{skew_v:+.2f}', 'third moment of the series'),
         ('Excess kurtosis', f'{kurt_v:+.2f}', 'fourth moment of the series'),
     ])
