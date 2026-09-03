@@ -1,34 +1,36 @@
 # ============================================================
-# DEPLOYMENT dependency specification — documented baseline
+# DEPLOYMENT dependency specification — ACTIVE since 2026-09-03 (P0.10.1)
 # ============================================================
-# Created: 2026-09-03 (P0.9.5)
+# Created: 2026-09-03 (P0.9.5). Activated as requirements.txt on 2026-09-03
+# after root-cause investigation (P0.10.1): requirements.txt is the ONLY
+# install spec Streamlit Community Cloud reads, and it carried a legacy
+# unpinned list whose latest-resolution broke under the Cloud Python 3.14
+# runtime. requirements.txt now carries exactly this matrix.
 #
-# IMPORTANT:
-# Cloud runtime has not been independently verified. This file is the
-# deployment dependency specification and must be validated against the
-# actual Streamlit Cloud runtime before claiming production reproducibility.
-#
-# Python runtime: UNKNOWN / controlled by Streamlit Cloud.
-# runtime.txt (python-3.12) is repository configuration only and was NOT
-# independently confirmed against the live Cloud runtime (the live app
-# sits behind a login wall; Cloud build logs / runtime version are not
-# observable without authenticated Cloud access).
-#
-# What the Streamlit Cloud instance ACTUALLY installs today is the legacy
-# unpinned requirements.txt. This file is the documented compatibility
-# baseline that should replace/absorb requirements.txt only after it is
-# validated on the real Cloud runtime.
+# Root cause, judged from wheel availability (no Cloud access needed):
+# - Streamlit Community Cloud ignores runtime.txt (streamlit/streamlit#15326);
+#   its Python version is fixed per app at creation time (Advanced settings).
+#   The live app is bound to Python 3.14.5 and cannot be changed in place —
+#   the app must be deleted and recreated selecting Python 3.12.
+# - The pinned core below is fully installable on CPython 3.12 linux x86_64
+#   (numpy/scipy/scikit-learn manylinux2014; pandas 2.3.3 / torch 2.8.0
+#   manylinux_2_28, glibc >= 2.28 satisfied by the Cloud Ubuntu image;
+#   xgboost / prophet / cmdstanpy / stanio / holidays are py3-none wheels).
+# - numpy 2.0.2 / scipy 1.13.1 / scikit-learn 1.6.1 / torch 2.8.0 have ZERO
+#   cp314 wheels on PyPI, so this matrix cannot build on Python 3.14 by
+#   design — the pinned matrix makes the Cloud build deterministic and
+#   documents that the app requires the 3.12 runtime.
 #
 # Pin policy:
 # - The 10 pinned packages use the SAME matrix as requirements-research.txt
-#   on purpose: this exact matrix is installable on Python 3.12 (verified
-#   wheels: pandas 2.3.3 / numpy 2.0.2 / prophet 1.3.0 on cp312 macOS arm64)
-#   and matches the verified research environment, which minimizes live-demo
-#   metric drift. Pinning them does NOT imply the app reproduces the formal
-#   research results — the app re-trains on every session (see docs/ENVIRONMENT.md
-#   "Research vs Live Demo").
+#   on purpose (matches the verified research environment, minimizing
+#   live-demo metric drift). Pinning them does NOT imply the app reproduces
+#   the formal research results — the app re-trains on every session (see
+#   docs/ENVIRONMENT.md "Research vs Live Demo").
 # - streamlit is deliberately unpinned: Streamlit Cloud manages its own
 #   Streamlit runtime version.
+# - plotly pinned to 7.0.0: charting lib verified in the local AppTest venv;
+#   deterministic Cloud builds (a future plotly major would be an API break).
 # - akshare is fetch-only and lazily imported (src/ppi_monthly.py); the app
 #   reads the committed CSV. Kept unpinned for optional data refresh.
 # ============================================================
@@ -48,8 +50,10 @@ holidays==0.83
 # --- app runtime / platform-controlled ---
 streamlit
 
+# --- charting (pinned to the version verified in the AppTest venv) ---
+plotly==7.0.0
+
 # --- optional / fetch-only ---
-plotly
 akshare
 
 # --- build constraint carried over from the original requirements.txt ---
