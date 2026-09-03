@@ -1,174 +1,164 @@
-# 部署指南
+# Deployment Guide
 
-## 方案 A：部署到 Streamlit Cloud（推荐 · 5 分钟）
+## Current Deployment Status
 
-### 步骤 1：在 GitHub 创建仓库（2 分钟）
+- **Streamlit Cloud URL**: https://civil-engineering-ppi.streamlit.app/
+- **GitHub repository**: https://github.com/jinliangyue/civil-engineering-dashboard
+- **Data**: 132 monthly PPI observations (2015-01 to 2025-12) retrieved through akshare from China's National Bureau of Statistics
+- **Status**: Deployed, automatically loads data from `data/raw/`
 
-```
-1. 浏览器访问 github.com
-2. 登录（如果没有账号先注册，免费）
-3. 右上角「+」→「New repository」
-4. 填写：
-   - Repository name: civil-engineering-dashboard
-   - Description: 中国工业 PPI 跨行业分析平台
-   - Public（公开）+ 不勾选 Add README
-5. 点「Create repository」
-```
+> The legacy manually-estimated fallback datasets have been removed. The current application uses the official monthly PPI dataset retrieved through akshare.
 
-### 步骤 2：本地初始化 Git + Push 代码（3 分钟）
+---
 
-打开终端，执行：
+## Option A: Deploy to Streamlit Cloud (recommended, ~5 minutes)
+
+### Step 1: Create GitHub repository (~2 minutes)
+
+1. Open https://github.com
+2. Sign in (create a free account if needed)
+3. Click "+" in the top right, then "New repository"
+4. Fill in:
+   - Repository name: `civil-engineering-dashboard`
+   - Description: `China Industrial PPI Time-Series Analysis and Forecasting Platform`
+   - Public, do not check "Add README"
+5. Click "Create repository"
+
+### Step 2: Initialize Git locally and push (~3 minutes)
+
+Open a terminal and run:
 
 ```bash
-# 1. 切到项目目录
+# 1. Switch to the project directory
 cd ~/Desktop/Claude\ code/civil-engineering-dashboard
 
-# 2. 初始化 Git
+# 2. Initialize Git
 git init
 
-# 3. 配置身份（如没配置过）
-git config user.name "你的 GitHub 用户名"
-git config user.email "你的邮箱"
+# 3. Configure identity (if not configured)
+git config user.name "Your GitHub username"
+git config user.email "your email"
 
-# 4. 添加所有文件
+# 4. Add all files
 git add .
 
-# 5. 第一次提交
-git commit -m "feat: 初始化项目 · 4 行业 PPI 跨年度分析平台"
+# 5. First commit
+git commit -m "feat: initialize China industrial PPI platform"
 
-# 6. 添加远程仓库（替换成你的 GitHub 用户名）
-git remote add origin https://github.com/你的用户名/civil-engineering-dashboard.git
+# 6. Add the remote (replace with your GitHub username)
+git remote add origin https://github.com/your-username/civil-engineering-dashboard.git
 
-# 7. 推送
+# 7. Push
 git branch -M main
 git push -u origin main
 ```
 
-如果推送时弹出 GitHub 登录窗口，输入用户名 + Personal Access Token（不是密码）。
+If a GitHub login prompt appears, enter your username and Personal Access Token (not password).
 
-### 步骤 3：在 Streamlit Cloud 部署（5 分钟）
+### Step 3: Deploy on Streamlit Cloud (~5 minutes)
 
-```
-1. 浏览器访问 share.streamlit.io
-2. 点「Sign in with GitHub」登录
-3. 点「New app」
-4. 填写：
-   - Repository: 你的用户名/civil-engineering-dashboard
-   - Branch: main
-   - Main file path: app/streamlit_app.py
-5. 点「Deploy」
-6. 等待 2-5 分钟，部署完成
-7. 复制应用 URL（类似 https://xxx.streamlit.app）
-```
+1. Open https://share.streamlit.io
+2. Sign in with GitHub
+3. Click "New app"
+4. Fill in:
+   - Repository: `your-username/civil-engineering-dashboard`
+   - Branch: `main`
+   - Main file path: `app/streamlit_app.py`
+5. Click "Deploy"
+6. Wait 2-5 minutes for the deploy to complete
+7. Copy the application URL (e.g., `https://xxx.streamlit.app`)
 
-### 步骤 4：测试部署
+### Step 4: Test the deployment
 
-打开应用 URL：https://civil-engineering-ppi.streamlit.app/
+Open the application URL: https://civil-engineering-ppi.streamlit.app/
 
-应该能看到：
-- 标题：中国工业 PPI 跨行业分析平台
-- 5 个 Tab（趋势 / 相关性 / 同比 / 预测 / 数据说明）
-- 4 个行业的数据可视化
+You should see:
+- Title: China Industrial PPI Time-Series Analysis and Forecasting Platform
+- 132 monthly data points loaded
+- Time-series forecast tabs
 
 ---
 
-## 当前部署状态
-
-- **Streamlit Cloud URL**：https://civil-engineering-ppi.streamlit.app/
-- **GitHub 仓库**：https://github.com/jinliangyue/civil-engineering-dashboard
-- **部署时间**：2026-09-01
-- **数据**：4 个行业 × 11 年 = 44 个数据点（兜底数据）
-- **状态**：已部署上线，自动从 data/raw/ 加载数据
-
----
-
-## 方案 B：本地部署（不推荐 · 仅用于本地测试）
+## Option B: Local deployment (for testing only)
 
 ```bash
 cd ~/Desktop/Claude\ code/civil-engineering-dashboard
-pip3 install streamlit
+pip3 install -r requirements.txt
 streamlit run app/streamlit_app.py
 ```
 
-浏览器会自动打开 http://localhost:8501
-
-但这只是本地访问，校招面试官看不到。
+The browser will open automatically at http://localhost:8501. This is for local testing only.
 
 ---
 
-## 方案 C：临时公网演示（用 ngrok · 1 分钟）
+## Option C: Temporary public demo (using ngrok, ~1 minute)
 
-如果暂时不想建 GitHub 仓库，可以用 ngrok 临时暴露本地端口：
+If you don't want to create a GitHub repository yet, use ngrok to expose your local port:
 
 ```bash
-# 1. 安装 ngrok
+# 1. Install ngrok
 brew install ngrok
 
-# 2. 注册 ngrok 账号（免费）
-# 访问 ngrok.com 注册 + 复制 authtoken
+# 2. Register an ngrok account (free)
+# Visit ngrok.com to register and copy your authtoken
 
-# 3. 配置 ngrok
-ngrok config add-authtoken 你的token
+# 3. Configure ngrok
+ngrok config add-authtoken your-token
 
-# 4. 启动 streamlit
+# 4. Start Streamlit
 streamlit run app/streamlit_app.py &
 
-# 5. 暴露到公网
+# 5. Expose to the public internet
 ngrok http 8501
 ```
 
-会得到一个公网 URL（免费版 8 小时有效）。
+You will receive a public URL (free tier valid for 8 hours).
 
 ---
 
-## 推荐路径
+## Recommended Path
 
-**秋招简历项目**：方案 A（部署到 Streamlit Cloud）
-**本地测试**：方案 B
-**临时演示**：方案 C（如果 GitHub 建仓失败）
+- **Resume portfolio**: Option A (deploy to Streamlit Cloud)
+- **Local testing**: Option B
+- **Temporary demo**: Option C (if GitHub setup fails)
 
 ---
 
-## 部署后简历链接填写
+## After Deployment: Resume Links
 
 ```
-GitHub: https://github.com/你的用户名/civil-engineering-dashboard
-Demo: https://你的应用名.streamlit.app
+GitHub: https://github.com/your-username/civil-engineering-dashboard
+Demo:   https://your-app.streamlit.app
 ```
 
 ---
 
-## 部署后检查清单
+## Deployment Checklist
 
-- [ ] GitHub 仓库是 public（公开）
-- [ ] README 显示正确
-- [ ] Streamlit 应用 URL 可访问
-- [ ] 4 个 Tab 都正常显示
-- [ ] 中文显示正常（如果乱码，告诉我）
-- [ ] 4 个行业数据都加载到
-
----
-
-## 常见问题
-
-**Q：GitHub push 时认证失败？**
-A：用 Personal Access Token 代替密码。GitHub → Settings → Developer settings → Personal access tokens → Generate new token。权限选 repo。
-
-**Q：Streamlit Cloud 部署失败？**
-A：检查 requirements.txt 是否齐全。看错误日志（Deploy 页面有 Logs 标签）。
-
-**Q：中文显示乱码？**
-A：matplotlib 用 PNG 时会乱码（Plotly 默认正常）。如果出现，告诉我加中文字体配置。
+- [ ] GitHub repository is public
+- [ ] README renders correctly
+- [ ] Streamlit application URL is accessible
+- [ ] 132 monthly data points load successfully
+- [ ] Chinese text renders correctly (report if garbled)
+- [ ] All forecast tabs display normally
 
 ---
 
-## 部署完成后告诉我
+## Common Issues
 
-1. GitHub 仓库 URL
-2. Streamlit Cloud 应用 URL
-3. 是否正常显示
+**Q: GitHub push authentication fails?**
+A: Use a Personal Access Token instead of a password. GitHub → Settings → Developer settings → Personal access tokens → Generate new token. Select `repo` scope.
 
-我帮你：
-- 完善 README
-- 写面试讲稿
-- 准备校招简历投递清单
+**Q: Streamlit Cloud deployment fails?**
+A: Check that `requirements.txt` is complete. Look at the Logs tab on the deploy page.
+
+**Q: Chinese text renders as garbled characters?**
+A: matplotlib PNG output may have font issues (Plotly defaults are fine). Report any garbling so we can add Chinese font configuration.
+
+---
+
+## After Deployment: Report Back
+
+1. GitHub repository URL
+2. Streamlit Cloud application URL
+3. Whether the application renders normally

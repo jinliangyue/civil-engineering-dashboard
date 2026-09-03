@@ -1,106 +1,217 @@
-# 面试讲稿 · 机器学习部分（5-15 分钟版）
+# Interview Talking Points · Machine Learning Section
 
-## 项目名（提一下）
+> This document is the **current** interview talking script aligned with the P0.5 / P0.6 experimental results.
+>
+> Historical context (the period when this project used manually-estimated fallback data) is preserved at the end as **deprecated background**, clearly marked.
 
-中国工业 PPI 跨行业分析平台 + 机器学习预测模块
+---
 
-## 5 分钟精简版
+## Project Name
 
-这个项目里的机器学习模块是我做的第二个亮点。在主仪表盘基础上，我加了一个机器学习 Tab，实现 XGBoost + LSTM 双模型对比。
+**China Industrial PPI Time-Series Analysis and Forecasting Platform**
 
-数据规模：4 个工业行业 × 11 年 = 44 个样本点。样本量很小（传统 ML 通常需要几百个点），所以重点放在了特征工程上。
+---
 
-我做了 5 类特征工程：
-- 滞后特征：去年 + 前年价格
-- 跨行业特征：黑色冶炼预测黑色矿采选
-- 时间特征：年份 + 是否在 5 年规划起点
-- 滚动统计：3 年移动平均 + 标准差
-- 行业 one-hot 编码
+## Project Narrative (current)
 
-模型上：
-- XGBoost 用了 100 棵树、最大深度 3、学习率 0.1
-- LSTM 用了滑动窗口 2 + 2 层 LSTM + Dropout 0.2 + 全连接
-- 训练/测试划分：2015-2022 训练（32 样本），2023-2025 测试（12 样本）
+```
+China Industrial PPI
+       ↓
+Official monthly data via akshare
+       ↓
+132 observations (2015-01 ~ 2025-12)
+       ↓
+Train / Validation / Final Test split (84 / 24 / 24 months)
+       ↓
+4 statistical baselines (Naive / Seasonal Naive / MA / SES)
+       ↓
+Prophet · XGBoost · PyTorch LSTM
+       ↓
+Validation-weighted Ensemble
+       ↓
+Final OOS Test
+       ↓
+Walk-forward Validation
+```
 
-评估指标用了 MAE / RMSE / MAPE / R² 四项，从应用里能直接看到对比结果。
+---
 
-## 15 分钟深度版
+## 5-Minute Compact Version
 
-**背景（2 分钟）**：
-样本点少是 PPI 项目的核心挑战——年度数据只有 11 个点，4 个行业 = 44 个总样本。如果直接用 Prophet 或 LSTM 这种序列模型，效果会很差。所以我做了一个判断：放弃月度数据（之前试过4 个数据源都拿不到），改用「年度数据 + 强特征工程」方案。
+This project's machine-learning module is the second highlight of my Streamlit dashboard.
 
-**特征工程（4 分钟）**：
+The data: 132 monthly PPI observations (2015-01 to 2025-12), retrieved through akshare from China's National Bureau of Statistics — not simulated, not manually estimated.
 
-第 1 类：滞后特征。`price_lag_1` 和 `price_lag_2`，让模型看到「去年的价格」作为输入。这个是时间序列模型的核心特征。
+I evaluated 7 models:
 
-第 2 类：跨行业特征。比如 `partner_price_黑色金属矿采选`，黑色冶炼的同一年黑色矿采选价格。这个基于一个业务洞察——产业链上下游高度联动（黑色冶炼 R=0.91 vs 黑色矿采选），所以同年的其他行业价格是强力预测因子。
+- 4 statistical baselines (Naive, Seasonal Naive, MA, SES)
+- Prophet (additive trend + yearly seasonality)
+- XGBoost (gradient boosting on hand-crafted causal features)
+- PyTorch LSTM (2-layer, rolling one-step-ahead)
 
-第 3 类：时间特征。`years_from_base` 和 `is_5year_plan_start`，考虑中国 5 年规划的政策周期影响。
+I implemented 15 hand-crafted causal features for XGBoost (lag 1/3/6/12 + rolling mean/std 3/6/12 + YoY + MoM), all using `shift(1)` to ensure they only depend on past values.
 
-第 4 类：滚动统计。3 年移动平均 + 标准差，平滑短期波动。
+LSTM hyperparameters were tuned by grid search restricted to the Train segment only (P0.3 commit `42ae111`).
 
-第 5 类：行业 one-hot。区分不同行业的不同模式（比如黑色金属波动小、有色金属波动大）。
+I built a validation-weighted ensemble: weights = 1 / Validation MAPE, normalized to sum to 1, then locked before final Test evaluation.
 
-最终特征从 1 个（价格）扩展到 ~10 个。
+Final Test results (2024-01 to 2025-12, 24 months strict OOS):
 
-**模型训练（3 分钟）**：
+| Model | MAE | RMSE | MAPE | R² |
+|---|---:|---:|---:|---:|
+| XGBoost | 0.3482 | 0.4824 | 0.3558% | 0.5209 |
+| LSTM | 0.4288 | 0.5224 | 0.4387% | 0.4381 |
+| Ensemble | 0.3473 | 0.4589 | 0.3551% | 0.5664 |
 
-XGBoost：
-- 用 scikit-learn 接口的 XGBRegressor
-- 参数：n_estimators=100（树的数量）、max_depth=3（防止过拟合，因为样本少）、learning_rate=0.1
-- 训练时用了交叉验证的思想（虽然样本少，我用了最后2 年作为测试集）
+**Important interpretation note**: The 2024-2025 Final Test period was relatively low-volatility (annual range 1.7-2.1). The Naive baseline already achieved MAPE = 0.3667%. Therefore the 0.3551% Ensemble MAPE should not be interpreted as universal forecasting accuracy — it mainly reflects this regime's stability.
 
-LSTM：
-- 用 TensorFlow/Keras Sequential 模型
-- 2 层 LSTM（16 units + Dropout 0.2）+ 全连接层
-- 滑动窗口长度 = 2（因为年度数据每点间距太大）
-- 由于样本少，LSTM 主要作为方法展示，实际预测用 XGBoost
+Walk-forward Validation (3 expanding-window folds over 2021/2022/2023):
 
-**评估（2 分钟）**：
+| Model | F1 (2021) | F2 (2022) | F3 (2023) | Mean | Std |
+|---|---:|---:|---:|---:|---:|
+| Naive | 1.35% | 0.98% | 0.72% | 1.02% | 0.26% |
+| XGBoost | 2.86% | 1.03% | 0.89% | 1.60% | 0.90% |
+| LSTM | 1.56% | 1.94% | 0.73% | 1.41% | 0.50% |
 
-- 训练集评估：MAE / RMSE / MAPE / R² 四项
-- 测试集评估：同样 4 项，对比泛化能力
-- 应用里直接展示对比表 + 预测图
+---
 
-**局限与未来改进（2 分钟）**：
+## 15-Minute Deep Version
 
-诚实地说，项目有 3 个局限：
-1. 样本量太小（44 个），LSTM 实际预测不准
-2. 没有月度数据，没法做真正的季节性分解
-3. 跨行业特征有数据泄露风险（同年的其他行业价格不算真「未来预测」）
+### Background (2 minutes)
 
-未来改进：
-1. 如果能拿到月度 PPI 数据，XGBoost + Prophet + LSTM 三个模型都有质的提升
-2. 加更多行业（建材 / 化学原料）
-3. 加工程量清单维度（不只是价格）
+China's PPI is the key benchmark for material price adjustment in engineering cost contracts. Public PPI data is available but only as monthly bulletins, without convenient cross-industry comparison tools.
 
-**Q&A 准备（面试官可能问）**：
+I built an end-to-end monthly time-series forecasting pipeline using 132 real monthly PPI observations (akshare → National Bureau of Statistics, 2015-01 to 2025-12).
 
-Q1：为什么不用 Prophet？
-A：Prophet 需要至少 2 个完整周期的数据（年度 = 24 年），我们只有 11 年。Prophet 会过拟合。
+I implemented strict data isolation:
 
-Q2：为什么用 XGBoost 而不是线性回归？
-A：XGBoost 能捕捉特征之间的非线性交互（比如「时间特征 × 行业」），线性回归做不到。
+- Train 84 months (2015-01 to 2021-12)
+- Validation 24 months (2022-01 to 2023-12) — used for hyperparameter selection and ensemble weight computation only
+- Final Test 24 months (2024-01 to 2025-12) — used exactly once for final reporting
 
-Q3：训练集 / 测试集怎么划分的？
-A：用最后 2 年（2023-2025）作为测试集，前 9 年作为训练集。这样能模拟「用历史预测未来」的真实场景。
+### Feature Engineering (4 minutes)
 
-Q4：模型在实际工程项目里怎么用？
-A：可以嵌入到工程量清单系统的「材料调差」模块。每次项目报价时，调入最新 PPI + 用模型预测未来 1-2 年价格，给项目经理做决策参考。
+15 causal features, all using `shift(1)`:
 
-Q5：项目最让你骄傲的部分是什么？
-A：特征工程那一块。当样本量不足时，特征工程决定了模型上限。我能把工程领域知识（产业链联动、政策周期）转化为模型特征，这比「调包」更有价值。
+- **Lag features**: `lag_1`, `lag_3`, `lag_6`, `lag_12` (price at t-1, t-3, t-6, t-12)
+- **Rolling features**: `rolling_mean_3`, `rolling_mean_6`, `rolling_mean_12`, `rolling_std_3`, `rolling_std_6`, `rolling_std_12` (computed on `shift(1)` so they only see past values)
+- **Time features**: `year`, `month`, `quarter`
+- **Derived features**: `yoy_change` (shift(1) − shift(13)), `mom_change` (shift(1) − shift(2))
 
-## 数据获取真实故事（加分项）
+All features are causal — no future information leakage.
 
-面试官问「数据怎么来的？」：
-- 一开始想爬我的钢铁网、兰格钢铁网、北京造价信息网——都需要企业认证
-- 试了 Kaggle、GitHub——数据陈旧（4 年前）
-- 最后用国家统计局公开 PPI 数据 + 兜底估算
-- 中间还尝试了 stats.gov.cn API 直接调用——IP 被封了
-- 最终方案：「数据诚实 + 工程能力扎实」比「假装有大量数据」更重要
+### Model Training (3 minutes)
 
-这个故事展示了：
-- 数据获取的真实路径
-- 面对限制的灵活应变
-- 工程能力（爬虫 / API / 数据清洗 / 估算）
+**XGBoost**:
+- XGBRegressor (n_estimators=200, max_depth=4, learning_rate=0.05)
+- Rolling one-step-ahead prediction on Test: each step uses features computed from history (which includes the actual values up to that point), then appends the actual after prediction
+- causal features prevent target leakage that would otherwise occur from rolling features that include the current target
+
+**LSTM** (PyTorch):
+- 2-layer LSTM with hidden_size=32, dropout=0.1, seq_length=6, num_layers=2, lr=0.001 (P0.3 grid search result on Train only)
+- StandardScaler fit only on training data
+- Rolling one-step-ahead on Test, starting with the last 6 points of training as the first input
+
+**Prophet**:
+- Additive trend + yearly seasonality
+- Fit on Train, predict on Test (out-of-sample)
+
+### Ensemble Construction (2 minutes)
+
+Validation-weighted ensemble:
+
+```
+raw_weight_i = 1 / Validation_MAPE_i
+weight_i = raw_weight_i / sum(raw_weights)
+```
+
+Validation-derived weights:
+
+| Model | Weight |
+|---|---:|
+| Naive | 0.28189 |
+| Seasonal Naive | 0.03278 |
+| MA | 0.15227 |
+| SES | 0.11433 |
+| Prophet | 0.00947 |
+| XGBoost | 0.24592 |
+| LSTM | 0.16333 |
+
+Weights are locked before Final Test evaluation. Test set plays no role in weight computation.
+
+### Walk-forward Validation (1 minute)
+
+3 expanding-window folds (F1 = 72 train → 12 test, F2 = 84 → 12, F3 = 96 → 12). Folds cover 2021 / 2022 / 2023. Walk-forward ensemble weights are not recomputed (the validation period is fixed).
+
+### Limitations (1 minute)
+
+Three honest limitations:
+
+1. **Sample size**: Only 132 monthly observations; walk-forward folds contain only 12 test points each.
+2. **No exogenous variables**: PPI is a univariate series; no PMI / CPI / energy prices / FX are included.
+3. **2024-2025 regime caveat**: Final Test is a low-volatility period; low MAPE numbers should be interpreted alongside the Naive baseline.
+
+---
+
+## Q&A Preparation
+
+Q1: Why did you choose PPI as the prediction target?
+A: PPI is the official industrial price benchmark published by China's National Bureau of Statistics, and it directly drives the material-price adjustment formula in engineering cost contracts.
+
+Q2: How did you get the data?
+A: akshare provides a Python interface to NBS public statistics. I tried 4 sources initially (我的钢铁/兰格钢铁/Kaggle/NBS API); the first three had commercial or data-staleness issues, and the NBS API blocked our IP. akshare was the only viable path.
+
+Q3: How did you ensure no data leakage?
+A: I enforced this through code-level assertions at every entry point:
+- Train/Val/Test boundary assertions (`len(train)==84`, etc.)
+- LSTM grid search accepts only Train data and raises ValueError otherwise
+- XGBoost features use `shift(1)` so rolling features only see past values
+- LSTM scaler is fit only on the corresponding training data
+- XGBoost is isolated in a subprocess to avoid runtime conflicts with PyTorch
+- Test set participates in no training, tuning, or weight selection
+
+Q4: Why did you build 4 statistical baselines alongside the ML models?
+A: In low-volatility regimes, the Naive baseline already achieves very low MAPE. The baselines let me tell whether ML models actually add value over "predict next = previous value".
+
+Q5: Why is the LSTM not significantly better than XGBoost?
+A: On 132 monthly points, the deep-learning model cannot fully leverage its capacity. This is consistent with the sample-size constraint. The causal features I built for XGBoost encode domain knowledge directly, which tree models exploit efficiently.
+
+Q6: Can I look at the code?
+A: Yes — the project is public on GitHub at `jinliangyue/civil-engineering-dashboard`. The relevant modules are:
+- `src/analyzer/monthly_lstm.py` — XGBoost / Prophet / LSTM helpers
+- `src/analyzer/ensemble.py` — validation-weighted ensemble
+- `src/evaluation/walk_forward.py` — P0.6 walk-forward validation
+- `src/evaluation/metrics.py` — unified MAPE / MAE / RMSE / R²
+
+Q7: What would you change next?
+A: Add exogenous macro variables (PMI, CPI, energy prices, FX), and produce prediction intervals instead of point predictions.
+
+---
+
+## Data Acquisition Story (current)
+
+When the interviewer asks "How did you get the data?":
+
+- I tried 我的钢铁网 / 兰格钢铁网 first — both require enterprise authentication
+- Tried Kaggle and GitHub datasets — too stale (4+ years old)
+- Tried the NBS stats.gov.cn API directly — IP was blocked
+- **Final solution**: akshare's `macro_china_ppi()` retrieves the same NBS-published monthly PPI series — 132 real observations from 2015-01 to 2025-12
+
+This story demonstrates:
+- Realistic data-acquisition iteration in a domain with commercial restrictions
+- Engineering problem-solving (tried multiple paths, found a viable open-data API)
+- Honesty about which sources failed and why
+
+---
+
+## Deprecated Background (kept for historical reference only)
+
+> The following describes an **earlier version** of this project that used manually-estimated annual data. That version was superseded in P0.1 (commit `587f9c6`) and the fallback dataset has been removed. Do not present this as current project state.
+
+Earlier iterations of this project (before 2026-09-02) used a 4-industry × 11-year = 44 manually-estimated annual dataset as a placeholder while looking for real monthly data. Those estimates were based on the public PPI index range and were clearly labeled as estimates, but they were not from a verifiable source. Once akshare provided a reliable path to the NBS monthly series, the fallback was removed and the current monthly pipeline took over.
+
+The "为什么放弃月度数据（之前试过 4 个数据源都拿不到）" narrative above reflects that intermediate period. The actual outcome was the opposite: akshare succeeded, monthly data is the current source, and the 44-point annual estimates no longer exist in the project.
+
+---
+
+**This document is maintained alongside `README.md` and `docs/PROJECT_STATUS.md` as the canonical interview talking script for the current project version.**
