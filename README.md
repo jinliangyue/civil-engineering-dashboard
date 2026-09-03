@@ -250,8 +250,11 @@ python3 -c "from src.ppi_monthly import load_monthly_ppi; print(load_monthly_ppi
 # Run unified metrics unit tests
 python3 -m src.evaluation.test_metrics
 
-# Run P0.5 ensemble experiment
-python3 -m src.evaluation.walk_forward  # uses __main__ if configured
+# Run P0.5 reproduction (validation-weighted ensemble on Final Test 2024-01 ~ 2025-12)
+python3 -m src.analyzer.ensemble
+
+# Run P0.6 reproduction (Walk-forward Validation on 2021/2022/2023)
+python3 -m src.evaluation.walk_forward
 ```
 
 The Streamlit dashboard runs at https://civil-engineering-ppi.streamlit.app/.

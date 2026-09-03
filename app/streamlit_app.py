@@ -51,21 +51,17 @@ st.markdown('''
 
 def ensure_data_exists():
     """
-    启动时检查 data/raw/ 是否有 CSV
-    如果没有（比如 Streamlit Cloud 部署时），自动运行 generate_fallback.py 生成兜底数据
+    启动时检查 data/raw/ 是否有官方月度 PPI CSV (data/raw/工业PPI_全国月度_2015-2025.csv)
+
+    不再调用 generate_fallback.py（该脚本已于 P0.1 删除）。
+    如果官方数据文件不存在，Streamlit 启动后会在 load_data() 中显式报错。
     """
     raw_dir = Path(__file__).parent.parent / 'data' / 'raw'
-    csv_files = list(raw_dir.glob('*.csv')) if raw_dir.exists() else []
-    if csv_files:
+    official_file = raw_dir / '工业PPI_全国月度_2015-2025.csv'
+    if official_file.exists():
         return
-    # 没有数据，自动调用 generate_fallback
-    import subprocess
-    import sys as _sys
-    script_path = Path(__file__).parent.parent / 'scripts' / 'generate_fallback.py'
-    try:
-        subprocess.run([_sys.executable, str(script_path)], check=True, capture_output=True, timeout=30)
-    except Exception as e:
-        st.warning(f'自动生成数据失败: {e}，请手动运行 python3 scripts/generate_fallback.py')
+    # 官方文件不存在 — 不做任何 fallback，让 load_data 显式报错
+    return
 
 
 @st.cache_data
@@ -83,8 +79,8 @@ def load_data():
 df = load_data()
 
 if df.empty:
-    st.error('⚠️ data/raw/ 下没有找到 CSV 文件，请先生成数据')
-    st.code('python3 scripts/generate_fallback.py', language='bash')
+    st.error('⚠️ 未找到官方月度 PPI 数据文件: data/raw/工业PPI_全国月度_2015-2025.csv')
+    st.error('请确认官方数据文件已就位，或重新部署项目。本项目不再使用任何 fallback 数据。')
     st.stop()
 
 
@@ -338,133 +334,20 @@ with tab4:
     st.plotly_chart(fig, use_container_width=True)
 
 
-# ============ Tab 5: 机器学习预测 ============
+# ============ Tab 5: 机器学习预测（已废弃）============
 with tab5:
-    st.markdown('### 🤖 机器学习多模型对比')
-    st.markdown('基于特征工程的 XGBoost + 序列建模的 LSTM 双模型对比，覆盖 4 个行业 × 11 年数据。')
-    # 懒加载（避免每次切换 Tab 都重训）
-    @st.cache_data(show_spinner=False)
-    def train_ml_models(_df):
-        from src.analyzer.features import build_features, get_feature_columns
-        from src.analyzer.ml_models import train_all_models
-        df_features = build_features(_df)
-        if df_features.empty:
-            return None, []
-        feature_cols = get_feature_columns(df_features)
-        result = train_all_models(df_features, feature_cols, test_years=[2024, 2025], forecast_years=3)
-        return result, feature_cols
-    with st.spinner('正在训练机器学习模型（首次约 30-60 秒）...'):
-        ml_result, feature_cols = train_ml_models(df)
-    if ml_result is None or ml_result.get('status') != 'success':
-        st.error('模型训练失败，请检查数据完整性')
-        st.stop()
-    # 模型评估对比
-    st.markdown('#### 模型评估对比')
-    eval_rows = []
-    if 'xgboost' in ml_result:
-        xgb_metrics = ml_result['xgboost']['metrics']
-        eval_rows.append({
-            '模型': 'XGBoost',
-            'MAE': xgb_metrics.get('MAE'),
-            'RMSE': xgb_metrics.get('RMSE'),
-            'MAPE %': xgb_metrics.get('MAPE_pct'),
-            'R²': xgb_metrics.get('R_squared'),
-            '特点': '梯度提升树 + 强特征工程',
-        })
-    if 'lstm' in ml_result:
-        lstm_metrics = ml_result['lstm']['metrics']
-        eval_rows.append({
-            '模型': 'LSTM',
-            'MAE': lstm_metrics.get('MAE'),
-            'RMSE': lstm_metrics.get('RMSE'),
-            'MAPE %': lstm_metrics.get('MAPE_pct'),
-            'R²': lstm_metrics.get('R_squared'),
-            '特点': '神经网络 + 序列建模',
-        })
-    if eval_rows:
-        st.dataframe(pd.DataFrame(eval_rows), use_container_width=True)
-    # XGBoost 特征重要性
-    if 'xgboost' in ml_result and ml_result['xgboost'].get('feature_importance'):
-        st.markdown('#### XGBoost 特征重要性')
-        fi = pd.Series(ml_result['xgboost']['feature_importance']).sort_values(ascending=True)
-        fig = go.Figure(go.Bar(
-            x=fi.values,
-            y=fi.index,
-            orientation='h',
-            marker_color='#3b82f6',
-        ))
-        fig.update_layout(
-            title='特征重要性（基于 XGBoost 增益）',
-            xaxis_title='重要性',
-            yaxis_title='特征',
-            template='plotly_white',
-            height=400,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    # 未来预测对比
-    st.markdown('#### 2026-2028 多模型预测对比')
-    future_years = [2026, 2027, 2028]
-    fig = go.Figure()
-    # 历史数据
-    for material in selected_materials:
-        sub = df_filtered[df_filtered['material'] == material].sort_values('year')
-        fig.add_trace(go.Scatter(
-            x=sub['year'],
-            y=sub['price'],
-            mode='lines+markers',
-            name=f'{material} (历史)',
-            line=dict(color=colors.get(material, '#64748b'), width=2),
-            marker=dict(size=8),
-        ))
-    # XGBoost 预测
-    if 'xgboost' in ml_result and ml_result['xgboost'].get('future_predictions'):
-        xgb_pred = ml_result['xgboost']['future_predictions']
-        fig.add_trace(go.Scatter(
-            x=future_years,
-            y=xgb_pred,
-            mode='lines+markers',
-            name='XGBoost 预测',
-            line=dict(color='#3b82f6', width=2, dash='dash'),
-            marker=dict(size=8, symbol='diamond'),
-        ))
-    # LSTM 预测
-    if 'lstm' in ml_result and ml_result['lstm'].get('future_predictions'):
-        lstm_pred = ml_result['lstm']['future_predictions']
-        fig.add_trace(go.Scatter(
-            x=future_years,
-            y=lstm_pred,
-            mode='lines+markers',
-            name='LSTM 预测',
-            line=dict(color='#ef4444', width=2, dash='dash'),
-            marker=dict(size=8, symbol='star'),
-        ))
-    fig.add_vline(x=2025.5, line_dash='dot', line_color='gray', opacity=0.5)
-    fig.update_layout(
-        title='机器学习多模型预测对比',
-        xaxis_title='年份',
-        yaxis_title='PPI 指数（上年=100）',
-        template='plotly_white',
-        hovermode='x unified',
-        height=500,
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    # 方法论说明
-    st.markdown('#### 方法论')
-    st.markdown('''
-**特征工程（应对样本点少的关键）**：
-- 滞后特征：去年 + 前年价格（捕捉时间依赖）
-- 跨行业特征：黑色冶炼预测黑色矿采选（捕捉产业链联动）
-- 时间特征：年份、距基准年、是否 5 年规划起点
-- 滚动统计：3 年移动平均 + 移动标准差
-- 行业 one-hot 编码（区分不同行业模式）
-
-**训练 / 测试划分**：2015-2022 训练（32 样本），2023-2025 测试（12 样本）
-
-**模型说明**：
-- XGBoost：基于特征工程的梯度提升树，对结构化数据效果好
-- LSTM：长短期记忆网络，捕捉非线性时间依赖（样本少时仅作方法展示）
-''')
-
+    st.markdown('### ⚠️ Tab 5 已废弃')
+    st.markdown('此 Tab 原本基于 4 行业 × 11 年 = 44 个手工估算年度数据点。')
+    st.markdown('该项目数据已于 P0.1 删除（commit `587f9c6`），改为基于 132 个月度真实 PPI 观测的 P0.5 / P0.6 实验。')
+    st.markdown('如需查看月度 PPI 时序预测与 Walk-forward Validation 结果，请使用 **Tab 7 月度时间序列**。')
+    st.markdown('')
+    st.markdown('正式 P0.5 Final Test 结果（2024-01 ~ 2025-12, 24 月 OOS）：')
+    st.markdown('- Ensemble: MAPE = **0.3551%**, R² = **0.5664**')
+    st.markdown('- XGBoost: MAPE = 0.3558%')
+    st.markdown('- LSTM: MAPE = 0.4387%')
+    st.markdown('')
+    st.markdown('正式 P0.6 Walk-forward Mean MAPE：')
+    st.markdown('- Naive 1.0192% / XGBoost 1.5958% / LSTM 1.4087%')
 
 # ============ Tab 6: 数据说明 ============
 with tab6:

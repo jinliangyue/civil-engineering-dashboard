@@ -34,7 +34,7 @@ warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = '/Users/xiayuhao/Desktop/Claude code/civil-engineering-dashboard'
+PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 
 # P0.3 锁定的 LSTM best_params
 LSTM_BEST_PARAMS = {

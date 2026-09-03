@@ -1,13 +1,18 @@
 """
-PPI 数据自动抓取脚本（选项 A）
-从国家统计局公开接口拉取工业生产者出厂价格指数（PPI）
+PPI 数据自动抓取脚本（选项 A · 历史版本）
+从 akshare 间接拉取国家统计局月度 PPI 数据
+
+> 当前正式数据获取方式：直接调用 `src.ppi_monthly.load_monthly_ppi()`，
+> 该函数内部使用 akshare.macro_china_ppi() 获取 132 个月度点。
+> 此独立脚本仅保留作为历史参考，不再是项目主流程的一部分。
+
 作者：十八 · 22 岁土木工程准大四 · 2026 秋招简历项目
 
 使用方法：
 1. 打开终端（Terminal）
-2. cd 到项目目录：cd ~/Desktop/Claude\ code/civil-engineering-dashboard
+2. 切换到项目根目录（任意路径）
 3. 安装依赖：pip install requests pandas
-4. 运行脚本：python scripts/fetch_ppi.py
+4. 运行脚本：python3 scripts/fetch_ppi.py
 5. 等待脚本跑完，会自动生成 CSV 文件到 data/raw/
 """
 
@@ -111,7 +116,8 @@ def main():
         print('  3. 指标编码不正确')
         print('\n解决方案：')
         print('  1. 检查网络是否正常（浏览器打开 data.stats.gov.cn 试试）')
-        print('  2. 改用 scripts/generate_fallback.py 生成兜底数据')
+        print('  2. 使用项目主流程：from src.ppi_monthly import load_monthly_ppi')
+        print('     （通过 akshare.macro_china_ppi() 获取 132 个月度真实点）')
         return
     # 保存
     df = pd.DataFrame(all_rows)

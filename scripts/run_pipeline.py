@@ -1,10 +1,14 @@
 """
-PPI 数据完整分析 pipeline
-适配年度数据：4 个行业 × 11 年（2015-2025）
+PPI 数据完整分析 pipeline（历史脚本 · 适配旧 4 行业 × 11 年年度数据）
+
+> 注意：此脚本基于已删除的 4 行业 × 11 年 = 44 个手工估算年度数据。
+> 当前正式实验（P0.1+）使用 132 个月度真实 PPI 观测，无需此 pipeline。
+> 保留此文件仅为向后兼容，不再主动调用。
+
 作者：十八 · 22 岁土木工程准大四 · 2026 秋招简历项目
 
 使用方法：
-1. cd ~/Desktop/Claude\ code/civil-engineering-dashboard
+1. 切换到项目根目录
 2. python3 scripts/run_pipeline.py
 3. 等待完成，会输出图表到 data/processed/figures/ + 摘要到终端
 """

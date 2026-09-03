@@ -22,12 +22,14 @@ ENV/
 *.swo
 .DS_Store
 
-# 数据（不提交原始 CSV，避免仓库过大）
-# 注：data/raw/ 的兜底数据保留提交，方便 clone 后直接跑通
-# data/raw/
+# 数据（不提交派生 CSV / SQLite / 图片，避免仓库过大）
 data/processed/*.csv
 data/processed/*.sqlite
 data/processed/figures/*.png
+
+# data/raw/ 的官方月度 PPI CSV 必须提交（仓库默认数据源）
+# 不要把 data/raw/ 加入 ignore
+# 旧 fallback 数据已于 P0.1 删除（commit 587f9c6）
 
 # 部署
 .streamlit/secrets.toml

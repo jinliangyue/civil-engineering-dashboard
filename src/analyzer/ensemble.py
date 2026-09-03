@@ -53,7 +53,7 @@ EXPECTED_VAL_LEN = 24
 EXPECTED_TEST_LEN = 24
 EXPECTED_TOTAL_LEN = 132
 
-PROJECT_ROOT = '/Users/xiayuhao/Desktop/Claude code/civil-engineering-dashboard'
+PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 
 # 子进程脚本路径
 XGB_CHILD_SCRIPT = '/tmp/_p05_xgb_child.py'
