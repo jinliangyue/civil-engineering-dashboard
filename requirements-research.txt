@@ -1,0 +1,46 @@
+# ============================================================
+# RESEARCH environment lock — P0.5 / P0.6 reproduction baseline
+# ============================================================
+# Created: 2026-09-03 (P0.9.5)
+#
+# This file pins the ONLY environment on which the formal research
+# results were produced and verified:
+#
+#   Python 3.9.13 (CPython, macOS arm64, framework build)
+#   /Library/Frameworks/Python.framework/Versions/3.9
+#   Installed 2026-09-02, re-verified 2026-09-03
+#
+# Formal results locked on this environment (do NOT update, do NOT
+# "tune to match" anything else):
+#   P0.5 Final Test  Ensemble MAPE = 0.3551%  R² = 0.5664
+#   P0.5 Final Test  XGBoost MAPE  = 0.3558%  LSTM MAPE = 0.4387%
+#   P0.6 Walk-forward Mean MAPE: Naive 1.0192% / XGBoost 1.5958% / LSTM 1.4087%
+#
+# RULES:
+# - Do NOT change this file to satisfy deployment needs. A deployment
+#   environment is a SEPARATE concern (see requirements-deploy.txt).
+#   Changing research dependencies requires a new, independent lock round.
+# - Do NOT add streamlit / plotly here: the research env intentionally
+#   has neither installed (verified absence, matches known limitation #6).
+# - Do NOT add akshare here: the monthly loader reads the committed CSV
+#   (data/raw/工业PPI_全国月度_2015-2025.csv); akshare is fetch-only and
+#   lazily imported, and is not part of P0.5/P0.6 reproduction.
+#
+# Verification of a fresh install:
+#   python3 -m src.evaluation.test_metrics      # 9/9 PASS
+#   python3 -m src.analyzer.ensemble            # P0.5 numbers, atol <= 1e-4
+#   python3 -m src.evaluation.walk_forward      # P0.6 numbers, atol <= 1e-4
+#   python3 scripts/environment_fingerprint.py  # versions + Prophet binary MD5
+# ============================================================
+
+# --- pinned core (10) — full matrix as verified ---
+pandas==2.3.3
+numpy==2.0.2
+scipy==1.13.1
+scikit-learn==1.6.1
+xgboost==2.1.4
+torch==2.8.0
+prophet==1.3.0
+cmdstanpy==1.3.0
+stanio==0.5.1
+holidays==0.83

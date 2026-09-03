@@ -2,7 +2,8 @@
 
 > **目的**：本文件供新 Claude Code 会话在没有聊天历史的情况下快速理解项目状态。
 > **生成时间**：2026-09-03
-> **当前 Git HEAD**：`1fcddf8` (`fix: complete P0.9 reproducibility cleanup`)
+> **当前 Git HEAD**：`251decf`（P0.9.5 环境锁定 commit · 历史章节中的旧 HEAD 引用以本行为准）
+> **最近追加**：§15 P0.9.4（Cloud runtime UNKNOWN + 架构决策）· §16 P0.9.5（环境锁定，2026-09-03 commit `251decf`）
 
 ---
 
@@ -296,4 +297,49 @@ P0.9.2 完成后应删除 `.venv-p093/` 并确认 working tree clean。
 
 ---
 
-**本文件由 Claude Code 在 P0.9.1 完成后、P0.9.2 验证前生成，作为新 Claude Code 会话的项目状态压缩快照。**
+**本文件由 Claude Code 在 P0.9.1 完成后、P0.9.2 验证前生成，作为新 Claude Code 会话的项目状态压缩快照。**（P0.9.4/P0.9.5 仅追加章节与修正过时 HEAD 标注，未改动正文内容。）
+
+---
+
+## 15. P0.9.4 审计（2026-09-03 · 只读 · 无文件变更）
+
+### 15.1 结论
+
+- **Q1 Cloud 实际 Python 版本：UNKNOWN / NOT OBSERVABLE**。live app 在公开面返回 303 登录墙（`/-/login`、`/_stcore/health` 均 303）；GitHub 无 Actions runs、无 deployments 记录（gh CLI 已登录 jinliangyue）；`runtime.txt = python-3.12` 只是 repository configuration，且仓库内两个 commit（`d5d7a48` 称 3.12 稳定、`3de3695` 称 runtime.txt 已废弃）叙述矛盾。任何「Cloud = 3.x」的写法均无证据。
+- **Q2 推荐架构：B（Research / Deployment 分离）**。两个环境对象、两套锁文件、两套约束，对 UNKNOWN 稳健。
+- **特别判断**：不把 research 强升 3.12。P0.5/P0.6 只在 3.9 全量复现；3.12 已有实测漂移（R3：Prophet 12.0476% → 11.5787%，Ensemble 0.3551% → 0.3540%）；reproducibility > demo 环境统一。迁移 3.9 baseline 需要独立的 lock 轮。
+
+### 15.2 铁律（源自 P0.9.4/P0.9.5 规范）
+
+> **Never use deployment environment changes to silently replace formal research results.**
+> 正式实验结果的 reproducibility 高于线上 demo 环境统一。不得为「Cloud 更漂亮」牺牲 research reproducibility；不得为统一环境强升 3.9 baseline；不得为测试通过改模型；不得为报告好看隐藏 UNKNOWN。
+
+---
+
+## 16. P0.9.5 环境锁定（2026-09-03 · 已完成，见 docs/ENVIRONMENT.md）
+
+### 16.1 交付文件
+
+| 文件 | 状态 | 说明 |
+|---|---|---|
+| `requirements-research.txt` | 新增 | 10 包全 pin（3.9 矩阵），P0.5/P0.6 唯一 reproduction baseline |
+| `requirements-deploy.txt` | 新增 | documented compatibility baseline，顶部注明 Cloud runtime has not been independently verified |
+| `scripts/environment_fingerprint.py` | 新增 | 版本 + Prophet 二进制 MD5；stdlib only；不输出敏感信息；缺包不 crash |
+| `docs/ENVIRONMENT.md` | 新增 | 10 节：分层总览 / research 锁 / deploy baseline / Cloud UNKNOWN / 版本策略 / 指纹 / Prophet 证据 / Research vs Live Demo / 变更规则 / 其他事实 |
+
+### 16.2 Research 环境（已正式锁定，9/3 复核）
+
+Python 3.9.13（框架 build）+ pandas 2.3.3 / numpy 2.0.2 / scipy 1.13.1 / scikit-learn 1.6.1 / xgboost 2.1.4 / torch 2.8.0 / prophet 1.3.0 / cmdstanpy 1.3.0 / stanio 0.5.1 / holidays 0.83；streamlit/plotly 未装（验证过）。Prophet 指纹复核无 discrepancy：bundled CmdStan 2.37.0、`prophet_model.bin` MD5 72d9ae8b8f399727c6c5b2f7cfeb98e5、`prophet.stan` 971f6716…、`stanc` 632d992a…——与 P0.9.3 记录完全一致。现存唯一 research 安装 = 框架 Python 3.9 base（`.venv-p093-legacy` 副本已删）。
+
+### 16.3 Formal results 状态（未改动，继续 LOCKED）
+
+P0.5 Ensemble 0.3551% / 0.5664、XGBoost 0.3558%、LSTM 0.4387%；P0.6 Naive 1.0192% / XGBoost 1.5958% / LSTM 1.4087%（全表见 §3/§4）。未被 Cloud 数字覆盖，不因部署需求重训。
+
+### 16.4 Deployment 状态
+
+Cloud Python 仍为 UNKNOWN（§15.1 证据未变）。`requirements-deploy.txt` 是待验证 baseline，不声称已生效；Cloud 实际安装的仍是 unpinned `requirements.txt`。runtime.txt 保留 `python-3.12`（repository configuration only）。
+
+### 16.5 Git 状态更正（相对本文档旧章节）
+
+- 当前 HEAD = `251decf`（P0.9.5 环境锁 commit，2026-09-03）；local main 领先 `origin/main`（=`3de3695`）**14** 个 commit（13 个 research/修复 + 1 个 P0.9.5 环境锁）。
+- 本地 research 修复（P0.5/P0.6/path fix）尚未在 origin/main 上 → Cloud 代码基线 = `3de3695`。**禁止自行 push**。

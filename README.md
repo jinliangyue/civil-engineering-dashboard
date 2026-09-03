@@ -191,12 +191,12 @@ All MAPE, MAE, RMSE, and R² values across the project are computed via a single
 
 ## Tech Stack
 
-- **Language**: Python 3.12
+- **Research environment**: Python 3.9.13 (locked — see `docs/ENVIRONMENT.md`, `requirements-research.txt`)
 - **Data**: pandas, numpy
 - **Statistics / ML**: scipy, Prophet, XGBoost, scikit-learn
 - **Deep learning**: PyTorch (LSTM)
 - **Data acquisition**: akshare (NBS PPI monthly)
-- **Web app**: Streamlit + Streamlit Cloud
+- **Web app**: Streamlit + Streamlit Cloud (platform-managed Python runtime; `runtime.txt` = `python-3.12` is repository configuration and has not been independently verified against the live Cloud runtime)
 - **Visualization**: Plotly
 
 ---
@@ -206,14 +206,17 @@ All MAPE, MAE, RMSE, and R² values across the project are computed via a single
 ```
 civil-engineering-dashboard/
 ├── README.md                          (this file)
-├── requirements.txt
-├── runtime.txt                        Python version pin (3.12)
+├── requirements.txt                   Legacy unpinned install list (what Cloud installs today)
+├── requirements-research.txt          Locked research env (Python 3.9.13 matrix)
+├── requirements-deploy.txt            Deployment compatibility baseline (Cloud not verified)
+├── runtime.txt                        Python version pin (3.12, repository config only)
 ├── app/
 │   └── streamlit_app.py               Streamlit dashboard
 ├── data/
 │   └── raw/工业PPI_全国月度_2015-2025.csv
 ├── docs/
 │   ├── PROJECT_STATUS.md              Full project state (Chinese)
+│   ├── ENVIRONMENT.md                 Environment lock & research-vs-demo separation
 │   ├── interview_script_ml.md        Interview talking points
 │   ├── DEPLOYMENT.md                  Deployment guide
 │   ├── WORKFLOW.md
@@ -222,6 +225,7 @@ civil-engineering-dashboard/
 │   ├── resume_description.md         Resume-ready bullets
 │   └── LSTM_TUNING_RESULTS.md        Historical LSTM tuning notes
 ├── scripts/
+│   ├── environment_fingerprint.py     Env fingerprint (versions + Prophet MD5)
 │   ├── fetch_ppi.py                  Fetch PPI via akshare
 │   └── run_pipeline.py
 └── src/
@@ -255,9 +259,18 @@ python3 -m src.analyzer.ensemble
 
 # Run P0.6 reproduction (Walk-forward Validation on 2021/2022/2023)
 python3 -m src.evaluation.walk_forward
+
+# Print the environment fingerprint (versions + Prophet binary MD5)
+python3 scripts/environment_fingerprint.py
 ```
 
-The Streamlit dashboard runs at https://civil-engineering-ppi.streamlit.app/.
+### Environment lock and research vs live demo
+
+The formal research results above (0.3551% etc.) are **locked to the verified research environment** (Python 3.9.13 matrix; see `docs/ENVIRONMENT.md` and `requirements-research.txt`). They are 2024-2025 low-volatility-regime results, not a guarantee that every run reproduces them.
+
+The Streamlit demo (`app/streamlit_app.py`) **re-trains models live on every session** (Prophet / XGBoost / LSTM grid search + ensemble over the full 132-point CSV), so the numbers it displays are live-demo metrics and are **not** the formal research results — they may drift across environments and runs. Do not quote demo numbers as the locked research result.
+
+The streamlit app runs at https://civil-engineering-ppi.streamlit.app/. Its runtime is managed by Streamlit Cloud; deployment dependencies are documented in `requirements-deploy.txt` (cloud runtime itself has not been independently verified).
 
 ---
 
