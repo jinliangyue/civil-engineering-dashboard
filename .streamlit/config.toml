@@ -1,0 +1,10 @@
+# Presentation theme (P0.11) — pure display layer.
+# Widget chrome (radios, buttons, dataframe headers) inherits this palette;
+# structural chrome (dark navy sidebar/top band) is applied by app/ui/styles.py
+# scoped CSS on top. No app behavior is configured here.
+[theme]
+primaryColor = "#1e40af"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#eef1f6"
+textColor = "#0f172a"
+font = "sans serif"

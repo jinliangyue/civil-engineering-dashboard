@@ -1,87 +1,70 @@
-"""Overview — the 10-second page.
+"""总览 Overview — the 10-second page.
 
-Tells an interviewer, at a glance: China industrial PPI, real monthly data
-2015–2025, seven models, a formal out-of-sample final test, and where the
-analysis lives. No live training here — everything is static.
+One compact project header, one KPI ledger line, one dominant series chart,
+then the formal research result. Everything static; no live training here.
 """
 
 from __future__ import annotations
 
 import pandas as pd
-import streamlit as st
 
 from . import components as X
 from . import constants as C
 
 
 def render(df: pd.DataFrame) -> None:
-    X.page_header(
-        'China Industrial PPI — Time-Series Analysis & Forecasting',
+    # --- Page head --------------------------------------------------------
+    X.page_head(
+        'OVERVIEW · 项目总览',
+        '总览',
         subtitle=(
-            'Producer Price Index for China’s industrial sector, National '
-            'Bureau of Statistics monthly release. 7 models, two evaluation '
-            'regimes, strict out-of-sample protocols.'
+            '中国工业生产者出厂价格指数（PPI），国家统计局官方月度发布。'
+            '132 条真实观测，7 个模型、两套评估协议、严格的样本外流程。'
         ),
     )
 
-    # --- KPI row ---------------------------------------------------------
-    X.kpi_cards([
-        ('Observations', '132', 'real monthly points, 2015-01 – 2025-12'),
-        ('Data coverage', '2015–2025', 'official NBS series, no gaps'),
-        ('Models evaluated', '7', 'baselines + Prophet + XGBoost + LSTM'),
-        ('Final test months', '24', 'OOS holdout 2024-01 – 2025-12'),
+    # --- KPI ledger strip --------------------------------------------------
+    latest = df.sort_values('date').iloc[-1]
+    X.kpi_strip([
+        ('LATEST PPI', f'{float(latest["ppi_index"]):.2f}',
+         f'指数 · {latest["date"].strftime("%Y-%m")} 官方发布'),
+        ('YOY CHANGE', f'{float(latest["yoy_pct"]):.2f}%',
+         '同比 · 上年同月 = 100 口径'),
+        ('OBSERVATIONS', '132', '2015-01 – 2025-12 · 逐月无缺口'),
+        ('FINAL TEST MAPE', '0.3551%', '集成模型 · 2024–2025 样本外', 'accent'),
     ])
 
-    # --- Main trend chart -------------------------------------------------
-    X.section('PPI index, 2015–2025')
-    fig = _trend_chart(df)
-    X.show_chart(fig, height=430)
+    # --- Dominant trend chart ----------------------------------------------
+    X.section_head(kicker='SERIES', title='PPI 指数，2015–2025')
+    X.show_chart(_trend_chart(df), height=460)
     X.note_sm(
-        'Index basis: prior-year same month = 100. Shaded band: the '
-        'out-of-sample final-test window (2024-01 – 2025-12). The 2024–2025 '
-        'window is a relatively low-volatility regime — see the Formal '
-        'Research Result below.'
+        '指数口径：上年同月 = 100。灰影区为样本外最终测试窗口'
+        '（2024-01 – 2025-12），该窗口属于低波动行情区间'
+        '（见下方正式研究结果）。'
     )
 
-    # --- Formal research result card --------------------------------------
-    st.markdown(X.divider(), unsafe_allow_html=True)
-    st.markdown(
-        f'<h3 style="margin:0.4rem 0 0.1rem 0;">{X.locked_badge()}'
-        f'&nbsp; Formal research result — final test</h3>',
-        unsafe_allow_html=True,
+    # --- Formal research result --------------------------------------------
+    X.section_head(
+        kicker='FORMAL RESEARCH RESULT · 锁定正式结果',
+        title='最终测试 · 严格样本外留出（2024-01 – 2025-12，24 个月）',
+        badges=[X.locked_badge()],
     )
-    st.markdown(
-        '<p class="p10-page-sub" style="font-size:0.9rem;">'
-        'Strict out-of-sample holdout over 2024-01 – 2025-12 (24 months). '
-        'Locked to the verified research environment — shown statically, '
-        'never recomputed in this app.'
-        '</p>',
-        unsafe_allow_html=True,
-    )
+    X.kpi_strip([
+        (C.FINAL_TEST_KPIS[0][1], C.FINAL_TEST_KPIS[0][2],
+         C.FINAL_TEST_KPIS[0][3], 'accent'),
+        (C.FINAL_TEST_KPIS[1][1], C.FINAL_TEST_KPIS[1][2],
+         C.FINAL_TEST_KPIS[1][3]),
+        ('Naive', '0.3667%', '基线对照 · 该窗口内已接近上限'),
+        (C.FINAL_TEST_KPIS[2][1], C.FINAL_TEST_KPIS[2][2],
+         C.FINAL_TEST_KPIS[2][3]),
+    ], variant='hero')
+    X.block(X.esc(C.REGIME_CAVEAT))
 
-    X.kpi_cards(
-        [
-            ('Ensemble · MAPE', '0.3551%', 'validation-weighted · R² 0.5664'),
-            ('XGBoost · MAPE', '0.3558%', 'best single model · R² 0.5209'),
-            ('Naive baseline · MAPE', '0.3667%', 'the bar to beat'),
-            ('LSTM · MAPE', '0.4387%', 'PyTorch · R² 0.4381'),
-        ],
-        per_row=4,
-    )
-    st.markdown(
-        f'<div class="p10-note" style="margin-top:0.7rem;">{X.esc(C.REGIME_CAVEAT)}</div>',
-        unsafe_allow_html=True,
-    )
-
-    if st.button('Explore the analysis →', key='p10_cta_eval', type='primary'):
-        st.session_state['nav_page'] = 'Model Evaluation'
-        st.rerun()
-
+    X.jump_button('查看完整 8 模型评估表 →', '模型评估')
     X.note_sm(
-        'Robustness across historical regimes (walk-forward, 2021–2023): '
-        'see the Robustness page. A live interactive demo that retrains these '
-        'models per session — clearly separated from the locked results — is '
-        'on the Forecast page.'
+        '跨行情稳健性（滚动外推 · 2021–2023）见「稳健性检验」页；'
+        '每会话重训三个模型的交互演示在「预测」页，'
+        '与上述锁定结果明确分离。'
     )
 
 
@@ -104,7 +87,7 @@ def _trend_chart(df: pd.DataFrame):
     ))
     fig.add_hline(
         y=100, line_dash='dot', line_color='#cbd5e1', line_width=1,
-        annotation_text='100 = prior-year month parity',
+        annotation_text='100 = parity with prior-year month',
         annotation_position='right', annotation_font_size=10.5,
         annotation_font_color='#94a3b8',
     )

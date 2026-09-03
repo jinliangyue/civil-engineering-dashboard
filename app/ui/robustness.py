@@ -1,9 +1,12 @@
-"""Robustness — the locked P0.6 walk-forward results (static only).
+"""稳健性检验 Robustness — locked P0.6 walk-forward diagnostics (static).
 
 Three expanding-window folds over 2021 / 2022 / 2023 — regimes that look
-nothing like the calm 2024-2025 final test. All numbers are hardcoded from
+nothing like the calm 2024–2025 final test. All numbers are hardcoded from
 the canonical records (PROJECT_STATUS §5 means/stds; README P0.6 table for
 per-fold values). No walk-forward ensemble is reported, on purpose.
+
+Wording contract: this page is a diagnostic across historical regimes — it
+never claims absolute robustness.
 """
 
 from __future__ import annotations
@@ -16,68 +19,79 @@ from . import constants as C
 
 
 def render(df: pd.DataFrame) -> None:  # df unused — static page
-    X.page_header(
-        'Robustness',
+    X.page_head(
+        'ROBUSTNESS · WALK-FORWARD DIAGNOSTIC',
+        '稳健性检验',
         subtitle=(
-            'Walk-forward validation over three historical regimes — higher '
-            'volatility than the 2024–2025 final test. Locked research '
-            'results, shown statically.'
+            '三个历史行情上的滚动外推诊断——波动远高于 2024–2025 最终测试。'
+            '锁定研究结果，静态展示；本页是诊断，不宣称绝对稳健。'
         ),
         badges=[X.locked_badge(C.BADGE_FORMAL)],
     )
 
-    # --- Fold strip -------------------------------------------------------
-    X.section('The three folds')
-    cols = st.columns(3)
-    for col, (name, train_txt, test_txt) in zip(cols, C.FOLDS):
-        col.markdown(
-            f'<div class="p10-kpi">'
-            f'<div class="p10-kpi-label">{name} · expanding window</div>'
-            f'<div class="p10-note" style="margin-top:6px;">{train_txt}</div>'
-            f'<div class="p10-note-sm" style="margin-top:2px;">→ {test_txt}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    # --- The three folds ----------------------------------------------------
+    X.section_head(
+        kicker='FOLDS · EXPANDING WINDOW',
+        title='三个折（扩张式窗口 · 滚动外推）',
+        subtitle='每折只使用该时点之前的数据训练，外推随后一个完整自然年。',
+    )
+    cells = []
+    for name, train_txt, test_txt in C.FOLDS:
+        year = test_txt.replace('测试 ', '').split(' 年')[0]
+        cells.append((f'FOLD {name}', year, train_txt))
+    X.kpi_strip(cells, variant='lean')
     X.note_sm(C.FOLD_NOISE_NOTE)
 
-    # --- Mean MAPE KPIs ----------------------------------------------------
-    X.kpi_cards([(k, v, c) for _, k, v, c in C.WF_KPIS], per_row=3)
+    # --- Mean MAPE across folds ----------------------------------------------
+    X.section_head(
+        kicker='MEAN MAPE · 3 FOLDS',
+        title='跨折均值 ± 标准差',
+        subtitle='三个 12 个月测试折上的平均 MAPE（%）；跨折均值是比单折更稳的比较量。',
+    )
+    cells = []
+    for key, label, value, caption in C.WF_KPIS:
+        cells.append((label, value, caption, 'accent' if key == 'naive' else None))
+    X.kpi_strip(cells)
 
-    # --- Chart view selector ----------------------------------------------
+    # --- Chart view selector ---------------------------------------------------
     view = st.radio(
-        'View',
-        options=['Mean ± std — all 7 models', 'Per-fold — Naive / XGBoost / LSTM'],
+        '图表视图',
+        options=[
+            '跨折均值 ± 标准差（全部 7 模型）',
+            '逐折（Naive / XGBoost / LSTM）',
+        ],
         index=0,
         horizontal=True,
         key='p10_wf_view',
     )
-    if view.startswith('Mean'):
+    if view.startswith('跨折'):
         _mean_std_chart()
     else:
         _per_fold_chart()
 
     X.note_sm(X.esc(C.WF_NO_ENSEMBLE_NOTE))
     X.note_sm(
-        'Per-fold values were recorded for four models (Naive, MA, XGBoost, '
-        'LSTM — README P0.6 table). Seasonal Naive, SES and Prophet '
-        'fold-level values were not published, so the per-fold view charts '
-        'the three lead models (MA per fold: 2.29 / 2.04 / 1.12 %). '
-        'Mean ± std across all 7 models: docs/PROJECT_STATUS.md §5.'
+        '逐折值只对四个模型做过记录（Naive、MA、XGBoost、LSTM —— README '
+        'P0.6 表）：Seasonal Naive、SES 与 Prophet 未发布单折值，'
+        '因此逐折视图只画三个主力模型（MA 单折 2.29 / 2.04 / 1.12 %）。'
+        '全部 7 模型的均值 ± 标准差：docs/PROJECT_STATUS.md §5。'
     )
 
     X.divider()
 
-    # --- Verdict quotes ----------------------------------------------------
-    X.section('What the walk-forward says')
+    # --- What the walk-forward says -------------------------------------------
+    X.section_head(kicker='DIAGNOSIS', title='滚动外推诊断结论')
     for q in C.FOOTER_QUOTES:
-        X.quote(f'“{X.esc(q)}”')
+        X.quote(f'「{X.esc(q)}」')
     X.note(
-        'Why the walk-forward means look worse than the final test: '
-        '2021 was a high-volatility swing year (annual PPI range ≈ 13.2), '
-        '2022 transition, 2023 decline. The 2024–2025 final test was calm. '
-        'Both measurements are correct for their own regime — they answer '
-        'different questions and should not be merged into a single headline '
-        'number.'
+        '为什么跨折均值明显高于最终测试：2021 是高波动摆动年'
+        '（PPI 年内振幅约 13.2），2022 转向，2023 回落；2024–2025 最终测试'
+        '处于低波动平稳段。两组测量各自对其所在行情成立——它们回答不同的'
+        '问题，不应合并成一个头条数字。'
+    )
+    X.note_sm(
+        '因此本平台对「稳健」一词保持克制：三折 12 个月样本只能诊断'
+        '跨行情的行为差异，不能证明模型在所有行情下都稳定。'
     )
 
 
@@ -103,7 +117,7 @@ def _mean_std_chart() -> None:
     ))
     fig.update_xaxes(range=[0, max(means) * 1.15])
     X.style_figure(fig, legend=False, height=400,
-                   x_title='Mean MAPE % across 3 folds (± std)')
+                   x_title='跨折平均 MAPE %（± 标准差 · 3 折）')
     X.show_chart(fig, height=400)
 
 
@@ -125,11 +139,10 @@ def _per_fold_chart() -> None:
         ))
     fig.update_yaxes(range=[0, 3.6])
     X.style_figure(fig, legend=True, height=380,
-                   x_title='Fold (test year)',
-                   y_title='Fold MAPE %')
+                   x_title='折（测试年份）',
+                   y_title='单折 MAPE %')
     X.show_chart(fig, height=380)
     X.note_sm(
-        'No model is best in all three folds: Naive wins 2022 and 2023, '
-        'XGBoost and LSTM alternate on 2021. That variability is the point '
-        'of this page.'
+        '没有模型在三个折中全部占优：Naive 赢下 2022 与 2023，'
+        'XGBoost 与 LSTM 在 2021 上轮流领先。这种可变性正是本页要展示的。'
     )

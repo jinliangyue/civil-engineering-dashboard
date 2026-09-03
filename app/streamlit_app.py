@@ -1,16 +1,22 @@
 """
-Streamlit main — China Industrial PPI Analysis & Forecasting Platform (P0.10).
+Streamlit main — 工业 PPI 分析与预测平台 · China Industrial PPI Analytics (P0.11).
 
-7-page information architecture (Overview / Data / Explore / Forecast /
-Model Evaluation / Robustness / About) with a hard separation between
-LOCKED research results (static pages) and the LIVE demo (per-session
-retrain on the Forecast page). Research code in src/ is only called, never
-modified; all formal numbers are hardcoded in app/ui/constants.py from
-docs/PROJECT_STATUS.md §4 / §5.
+7-page information architecture (总览 / 数据 / 趋势分析 / 预测 / 模型评估 /
+稳健性检验 / 方法与说明) with a hard separation between LOCKED research
+results (static pages) and the LIVE demo (per-session retrain on the Forecast
+page). Research code in src/ is only called, never modified; all formal
+numbers are hardcoded in app/ui/constants.py from docs/PROJECT_STATUS.md
+§4 / §5.
+
+P0.11 is a pure display-layer redesign — no research logic, data, evaluation
+methodology or locked numbers changed. Design: Research Analytics Terminal
+(dark navy structural chrome, white workspace, restrained deep blue accent,
+Chinese-first copy with English labels as terminal markers).
 
 Author: jinliangyue (十八) · 2026 autumn recruiting portfolio.
 """
 
+import importlib
 import sys
 from pathlib import Path
 
@@ -35,7 +41,7 @@ REQUIRED_MONTHLY_COLUMNS = ['date', 'ppi_index', 'yoy_pct', 'ytd_index']
 
 
 st.set_page_config(
-    page_title='China Industrial PPI — Analysis & Forecasting Platform',
+    page_title=C.APP_TITLE,
     page_icon='📈',
     layout='wide',
     initial_sidebar_state='expanded',
@@ -101,52 +107,53 @@ if load_error is not None:
 
 
 # --------------------------------------------------------------------------
-# Sidebar — brand + page router
+# Sidebar — brand + page router (dark navy chrome)
 # --------------------------------------------------------------------------
 with st.sidebar:
     st.markdown(
-        '<div style="padding:0.15rem 0 0.05rem 0;">'
-        '<span class="p10-brand">PPI Analytics</span></div>'
-        '<div class="p10-brand-sub">China industrial PPI · analysis & forecasting</div>',
+        f'<div style="padding:0.2rem 0 0.15rem 0;">'
+        f'<div class="p10-sb-cn">{X.esc(C.SIDEBAR_BRAND)}</div>'
+        f'<div class="p10-sb-en">{X.esc(C.SIDEBAR_SUB)}</div>'
+        f'</div>'
+        f'<div class="p10-sb-rule"></div>',
         unsafe_allow_html=True,
     )
-    st.markdown('<div style="height:0.8rem;"></div>', unsafe_allow_html=True)
     st.radio(
-        'Platform sections',
+        '页面',
         options=C.PAGES,
         key='nav_page',
         label_visibility='collapsed',
     )
     st.markdown(
-        '<div class="p10-side-foot">'
-        'Official NBS monthly data<br>'
-        '2015–2025 · 132 observations<br>'
-        '<span style="color:#cbd5e1;">Research versions: P0.5 final test · '
-        'P0.6 walk-forward</span></div>',
+        f'<div class="p10-sb-foot">'
+        f'官方月度数据 · 132 观测 · 2015–2025<br>'
+        f'<span class="p10-sb-hl">国家统计局</span> · 只读模式<br>'
+        f'研究版本：P0.5 最终测试 · P0.6 滚动外推'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
 
 # --------------------------------------------------------------------------
-# Page dispatch (lazy imports: heavy libs load only when their page is first
-# visited — the Forecast page imports torch/Prophet/XGBoost at call time)
+# Page dispatch (CN label → page module). Lazy module imports keep heavy
+# libs (torch / Prophet / XGBoost) out of the startup path — the Forecast
+# page pulls them only inside its training function at first visit.
 # --------------------------------------------------------------------------
+_PAGE_MODULES = {
+    '总览': 'overview',
+    '数据': 'data_page',
+    '趋势分析': 'trend',
+    '预测': 'forecast',
+    '模型评估': 'evaluation',
+    '稳健性检验': 'robustness',
+    '方法与说明': 'methodology',
+}
+
+
 def _render_page(page: str, df: pd.DataFrame) -> None:
-    if page == 'Overview':
-        from app.ui.overview import render
-    elif page == 'Data':
-        from app.ui.data_page import render
-    elif page == 'Explore':
-        from app.ui.explore import render
-    elif page == 'Forecast':
-        from app.ui.forecast import render
-    elif page == 'Model Evaluation':
-        from app.ui.evaluation import render
-    elif page == 'Robustness':
-        from app.ui.robustness import render
-    else:  # About
-        from app.ui.about import render
-    render(df)
+    X.app_band()
+    mod = importlib.import_module(f'app.ui.{_PAGE_MODULES[page]}')
+    mod.render(df)
 
 
 _render_page(st.session_state['nav_page'], df)

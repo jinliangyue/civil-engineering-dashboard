@@ -1,4 +1,10 @@
-"""Shared UI building blocks (badges, KPI cards, notes, chart chrome).
+"""Shared UI building blocks — P0.11 terminal theme.
+
+Design contract (display layer only):
+- No decorative card grid. Numbers live in hairline KPI strips (.p10-strip).
+- Page / section heads use EN kicker (small caps) + CN title.
+- Stage banners (.p10-panel-head) separate LIVE DEMO from FORMAL sections.
+- Charts are the hero: helpers only normalize chrome, never box them.
 
 All styling is scoped to `p10-*` classes defined in styles.py. Markdown-based
 helpers return raw HTML strings; callers pass unsafe_allow_html=True. Chart /
@@ -9,7 +15,7 @@ handling (width='stretch' on streamlit >= 1.49, use_container_width before).
 from __future__ import annotations
 
 import html as _html
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
 
 import streamlit as st
 
@@ -41,7 +47,7 @@ YOY_POS = '#bc5b4a'
 YOY_NEG = '#0e7490'
 
 
-def esc(text: str) -> str:
+def esc(text) -> str:
     return _html.escape(str(text))
 
 
@@ -61,33 +67,115 @@ def demo_badge(text: str = None) -> str:
     return badge('demo', text)
 
 
-def page_header(title: str, subtitle: str = None, badges: Sequence[str] = ()) -> None:
-    """Standard page title block. `badges` are pre-rendered badge HTML."""
-    parts = [f'<div class="p10-page-title">{esc(title)}']
-    for b in badges:
-        parts.append(f'&nbsp;{b}')
+# --------------------------------------------------------------------------
+# Page head: EN kicker (small caps) + CN title + CN subtitle (+ badges)
+# --------------------------------------------------------------------------
+def page_head(kicker: str, title: str, subtitle: str = None,
+              badges: Sequence[str] = ()) -> None:
+    parts = [f'<div class="p10-kick">{esc(kicker)}</div>']
+    parts.append('<div class="p10-title-row">')
+    parts.append(f'<span class="p10-title">{esc(title)}</span>')
+    if badges:
+        parts.append(f'<span class="p10-title-badges">{"".join(badges)}</span>')
     parts.append('</div>')
     if subtitle:
-        parts.append(f'<p class="p10-page-sub">{subtitle}</p>')
+        parts.append(f'<div class="p10-sub">{subtitle}</div>')
     st.markdown(''.join(parts), unsafe_allow_html=True)
 
 
-def kpi_cards(items: Sequence[tuple[str, str, str]], per_row: int = 4) -> None:
-    """items: (label, value, caption) — all already formatted strings."""
-    for start in range(0, len(items), per_row):
-        row = items[start:start + per_row]
-        cols = st.columns(len(row))
-        for col, (label, value, caption) in zip(cols, row):
-            col.markdown(
-                f'<div class="p10-kpi">'
-                f'<div class="p10-kpi-label">{esc(label)}</div>'
-                f'<div class="p10-kpi-value">{esc(value)}</div>'
-                f'<div class="p10-kpi-caption">{esc(caption)}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+def section_head(kicker: str = None, title: str = None, subtitle: str = None,
+                 badges: Sequence[str] = ()) -> None:
+    parts = []
+    if kicker:
+        parts.append(f'<div class="p10-sec-kick">{esc(kicker)}</div>')
+    if title or badges:
+        parts.append('<div class="p10-sec-row">')
+        if title:
+            parts.append(f'<span class="p10-sec-title">{esc(title)}</span>')
+        for b in badges:
+            parts.append(b)
+        parts.append('</div>')
+    if subtitle:
+        parts.append(f'<div class="p10-sec-sub">{subtitle}</div>')
+    if parts:
+        st.markdown('<div class="p10-sec">' + ''.join(parts) + '</div>',
+                    unsafe_allow_html=True)
 
 
+# --------------------------------------------------------------------------
+# KPI strip — terminal ledger line, not a card row.
+# cell: (label, value, caption) or (label, value, caption, mod)
+#   mod in {None, 'accent', 'teal'} — tints the value.
+# variant: None | 'hero' | 'lean' — scales the value type.
+# --------------------------------------------------------------------------
+def kpi_strip(cells: Sequence[tuple], variant: str = None) -> None:
+    inner = []
+    for cell in cells:
+        label, value, caption = cell[0], cell[1], cell[2]
+        mod = cell[3] if len(cell) > 3 else None
+        mod_css = {'accent': ' p10-s-val--accent',
+                   'teal': ' p10-s-val--teal'}.get(mod, '')
+        inner.append(
+            f'<div class="p10-strip-cell">'
+            f'<div class="p10-s-label">{esc(label)}</div>'
+            f'<div class="p10-s-val{mod_css}">{esc(value)}</div>'
+            f'<div class="p10-s-cap">{esc(caption)}</div>'
+            f'</div>'
+        )
+    cls = 'p10-strip' + (f' p10-strip--{variant}' if variant else '')
+    st.markdown(f'<div class="{cls}">{"".join(inner)}</div>',
+                unsafe_allow_html=True)
+
+
+# --------------------------------------------------------------------------
+# Stage banner — separates LIVE DEMO sections from FORMAL (locked) ones.
+# --------------------------------------------------------------------------
+def stage_head(kind: str, title: str, badge_html: str = None,
+               subtitle: str = None) -> None:
+    """kind in {'demo', 'formal'}; badge_html overrides the default badge."""
+    if badge_html is None:
+        badge_html = demo_badge() if kind == 'demo' else locked_badge()
+    cls = 'p10-panel-head p10-panel-head--' + kind
+    parts = [f'<div class="{cls}">',
+             '<span class="p10-panel-flag"></span>',
+             f'<span class="p10-panel-title">{esc(title)}</span>',
+             f'<span class="p10-panel-badges">{badge_html}</span>',
+             '</div>']
+    if subtitle:
+        parts.append(f'<div class="p10-note-sm">{subtitle}</div>')
+    st.markdown(''.join(parts), unsafe_allow_html=True)
+
+
+# --------------------------------------------------------------------------
+# Top band (dark navy terminal header shown at the top of every page)
+# --------------------------------------------------------------------------
+def app_band() -> None:
+    chips = [
+        f'<span class="p10-chip">132 OBS · <b>2015–2025</b></span>',
+        '<span class="p10-chip">SOURCE · <b>国家统计局</b></span>',
+        '<span class="p10-chip">运行时离线 · <b>只读 CSV</b></span>',
+        f'<a class="p10-chip" href="{C.GITHUB_URL}" target="_blank">GITHUB ↗</a>',
+    ]
+    st.markdown(
+        f'<div class="p10-band">'
+        f'<div class="p10-band-l">'
+        f'<div class="p10-band-title">'
+        f'<span class="p10-band-cn">{esc(C.SIDEBAR_BRAND)}</span>'
+        f'<span class="p10-band-en">China industrial PPI · '
+        f'time-series analytics terminal</span>'
+        f'</div>'
+        f'<div class="p10-band-sub">官方月度数据 · 只读模式 · '
+        f'研究与演示分离的评估终端</div>'
+        f'</div>'
+        f'<div class="p10-band-meta">{"".join(chips)}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# --------------------------------------------------------------------------
+# Notes, blocks, quotes, checks, footer
+# --------------------------------------------------------------------------
 def note(text: str) -> None:
     st.markdown(f'<div class="p10-note">{text}</div>', unsafe_allow_html=True)
 
@@ -96,13 +184,20 @@ def note_sm(text: str) -> None:
     st.markdown(f'<div class="p10-note-sm">{text}</div>', unsafe_allow_html=True)
 
 
+def block(text: str, kind: str = None) -> None:
+    """Contextual band. kind: None | 'demo' | 'warn'."""
+    cls = 'p10-block' + (f' p10-block--{kind}' if kind else '')
+    st.markdown(f'<div class="{cls}">{text}</div>', unsafe_allow_html=True)
+
+
 def quote(text: str) -> None:
     st.markdown(f'<div class="p10-quote">{text}</div>', unsafe_allow_html=True)
 
 
 def check_line(text: str) -> None:
     st.markdown(
-        f'<div class="p10-note"><span class="p10-check">✓</span> {esc(text)}</div>',
+        f'<div class="p10-note" style="margin:0.28rem 0;">'
+        f'<span class="p10-check">✓</span> {esc(text)}</div>',
         unsafe_allow_html=True,
     )
 
@@ -116,12 +211,29 @@ def demo_disclaimer_note() -> None:
     note_sm(C.DEMO_DISCLAIMER)
 
 
-def section(title: str, subtitle: str = None) -> None:
-    st.markdown(f'<h3 style="margin:0.4rem 0 0.1rem 0; color:{INK};">{esc(title)}</h3>',
+def code_line(text: str) -> None:
+    st.markdown(f'<div class="p10-code-line">{esc(text)}</div>',
                 unsafe_allow_html=True)
-    if subtitle:
-        st.markdown(f'<p class="p10-page-sub" style="font-size:0.9rem;">{subtitle}</p>',
-                    unsafe_allow_html=True)
+
+
+def steps_row(pairs: Sequence[tuple[str, str]], start: int = 1) -> None:
+    """Numbered pipeline steps — (CN, EN) pairs, e.g. Methodology page."""
+    parts = ['<div class="p10-steps">']
+    for i, (cn, en) in enumerate(pairs, start=start):
+        parts.append(
+            f'<div class="p10-step">'
+            f'<span class="p10-step-no">{i:02d}</span>'
+            f'<div><div class="p10-step-t">{esc(cn)}</div>'
+            f'<div class="p10-step-e">{esc(en)}</div></div>'
+            f'</div>'
+        )
+    parts.append('</div>')
+    st.markdown(''.join(parts), unsafe_allow_html=True)
+
+
+def footer() -> None:
+    st.markdown(f'<div class="p10-footer">{esc(C.FOOTER_LINE)}</div>',
+                unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------------
@@ -151,11 +263,11 @@ def style_figure(fig, height: int = None, legend: bool = True,
         **layout_kw,
     )
     fig.update_xaxes(
-        showgrid=False, linecolor='#d7dbe3', tickfont={'size': 11},
+        showgrid=False, linecolor='#c9d1dd', tickfont={'size': 11},
         title={'text': x_title, 'font': {'size': 12}} if x_title else None,
     )
     fig.update_yaxes(
-        gridcolor=GRID, linecolor='#ffffff', zerolinecolor='#d7dbe3',
+        gridcolor=GRID, linecolor='#ffffff', zerolinecolor='#c9d1dd',
         tickfont={'size': 11},
         title={'text': y_title, 'font': {'size': 12}} if y_title else None,
     )
@@ -177,23 +289,29 @@ def show_chart(fig, height: int = None) -> None:
 
 def show_dataframe(df, height: int = None, **kwargs) -> None:
     """st.dataframe with version-compatible width handling."""
-    kwargs['height'] = height or 420
+    kwargs['height'] = height or 380
     try:
         st.dataframe(df, width='stretch', **kwargs)
     except TypeError:
         st.dataframe(df, use_container_width=True, **kwargs)
 
 
-def footer() -> None:
-    st.markdown(f'<div class="p10-footer">{esc(C.FOOTER_LINE)}</div>',
-                unsafe_allow_html=True)
+# --------------------------------------------------------------------------
+# Micro helpers
+# --------------------------------------------------------------------------
+def jump_button(label: str, page: str) -> None:
+    """In-page navigation button to another sidebar page (CN label)."""
+    if st.button(label, key=f'jump_to_{page}', type='secondary'):
+        st.session_state['nav_page'] = page
+        st.rerun()
 
 
-def pipe_row(steps: Iterable[str]) -> str:
-    """Pipeline chips with arrows — returns raw HTML for unsafe_allow_html."""
+def pills(items: Sequence[str]) -> None:
+    """Inline chips with arrows (compact provenance line)."""
     parts = []
-    for i, step in enumerate(steps):
+    for i, step in enumerate(items):
         if i:
             parts.append('<span class="p10-arrow">→</span>')
         parts.append(f'<span class="p10-pill">{esc(step)}</span>')
-    return f'<div style="line-height:2.1;">{"".join(parts)}</div>'
+    st.markdown(f'<div style="line-height:2.15; margin:0.2rem 0;">'
+                f'{"".join(parts)}</div>', unsafe_allow_html=True)

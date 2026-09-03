@@ -1,4 +1,4 @@
-"""Forecast — live interactive demo, clearly separated from formal results.
+"""预测 Forecast — live interactive demo, clearly separated from formal results.
 
 Three models are retrained per session on the official 132 observations
 (108-point training window through 2023-12, same split as the formal
@@ -18,6 +18,8 @@ Model wiring (no research code is modified — only called):
 - LSTM:     predict_lstm_future_recursive likewise seeds its last window
   from real values through 2025-12; the scaler mean/std were fitted on the
   108 training points only (P0.3-locked hyperparameters).
+
+P0.11: display layer only. Payload / training logic below is unchanged.
 """
 
 from __future__ import annotations
@@ -42,71 +44,96 @@ MODEL_LABELS = {
     'lstm': 'LSTM',
 }
 
+_ALL_KEY = 'all'
+_SHOW_OPTIONS = [
+    (_ALL_KEY, '全部三个模型（All three）'),
+    ('prophet', 'Prophet'),
+    ('xgboost', 'XGBoost'),
+    ('lstm', 'LSTM'),
+]
+
 
 def render(df: pd.DataFrame) -> None:
-    X.page_header(
-        'Forecast',
+    # --- Page head --------------------------------------------------------
+    X.page_head(
+        'FORECAST · 预测演示',
+        '预测',
         subtitle=(
-            'An interactive demonstration: three models are retrained inside '
-            'this session and asked for 2026-01 to 2026-12. Live-demo numbers '
-            'here are not the locked research results.'
+            '交互演示：三个模型在本会话内重训并外推 2026 全年。'
+            '这里的数字是现场演示，不是锁定研究结果。'
         ),
         badges=[X.demo_badge(f'{C.BADGE_LIVE_DEMO} · {C.BADGE_INTERACTIVE}')],
     )
-    X.demo_disclaimer_note()
-    st.markdown('<div style="height:0.3rem;"></div>', unsafe_allow_html=True)
 
     payload = _get_payload(df)
     if payload is None:
         return  # error already shown
 
-    # --- Future demo forecast ---------------------------------------------
-    X.section(
-        'Demo forecast — 2026-01 → 2026-12',
-        subtitle=(
-            'Prophet, XGBoost and LSTM were fitted on 2015-01 – 2023-12 '
-            '(108 observations, identical to the formal experiment), then '
-            'asked for 12 months ahead. XGBoost and LSTM recursion is seeded '
-            'from the real observations through 2025-12; Prophet extrapolates '
-            'the trend it fitted.'
-        ),
+    # --- LIVE DEMO stage --------------------------------------------------
+    X.stage_head(
+        'demo',
+        '现场演示 · 2026 年交互外推',
+        badge_html=X.demo_badge(),
     )
+    X.note(C.FORECAST_HEADING_NOTE)
+    X.demo_disclaimer_note()
+
     which = st.radio(
-        'Models on chart',
-        options=['All three models', 'Prophet', 'XGBoost', 'LSTM'],
+        '图表显示模型',
+        options=[label for _, label in _SHOW_OPTIONS],
         index=0,
         horizontal=True,
         key='p10_forecast_show',
     )
-    _future_chart(df, payload, which)
-    X.note_sm(
-        'Forecast horizon 2026-01 → 2026-12. No ground truth exists beyond '
-        '2025-12, so no MAPE is shown here — this is not a test result. '
-        'Treat these lines as a pipeline demonstration, not as a prediction '
-        'of future PPI values.'
+    key_sel = next(k for k, v in _SHOW_OPTIONS if v == which)
+    selected = ['prophet', 'xgboost', 'lstm'] if key_sel == _ALL_KEY \
+        else [key_sel]
+
+    _future_chart(df, payload, selected)
+    X.block(
+        '外推区间 2026-01 → 2026-12：2025-12 之后尚不存在真实值，'
+        '因此本图不提供任何 MAPE——这不是测试结果。'
+        '这些线条演示的是完整流水线，不是对未来 PPI 数值的承诺。',
+        kind='demo',
     )
 
-    X.divider()
-
-    # --- Same-session OOS backtest demo -----------------------------------
-    X.section(
-        'Out-of-sample backtest — same session, same models (2024-01 → 2025-12)',
+    # --- Same-session OOS backtest sub-block -------------------------------
+    X.section_head(
+        kicker='BACKTEST · 同期回测',
+        title='样本外回测（2024-01 → 2025-12 · 同一会话同一批模型）',
         subtitle=(
-            'Rolling one-step-ahead OOS backtest on the 24 months where real '
-            'values exist, so a demo MAPE can be shown. These numbers are a '
-            'live re-run for this session and environment; the locked formal '
-            'results are on the Model Evaluation page.'
+            '在真实值已存在的 24 个月上做滚动单步外推，因此可以给出演示 '
+            'MAPE。这些数字是本次会话的现场重跑；锁定正式结果见'
+            '「模型评估」页。'
         ),
     )
     _backtest_chart(payload)
     X.show_dataframe(_demo_metrics_frame(payload), height=210)
     X.note_sm(
-        'Demo metrics (MAE / RMSE / MAPE / R²) are computed by the same '
-        'unified metrics module used in the research pipeline, but from a '
-        'fresh session retrain — they drift across environments. Locked '
-        'formal values: Ensemble 0.3551% · XGBoost 0.3558% · Naive 0.3667% · '
-        'LSTM 0.4387% MAPE (final test).'
+        '演示指标（MAE / RMSE / MAPE / R²）由研究流水线同款统一指标模块'
+        '计算，但来自本会话的全新重训——数值与锁定结果之间会有环境漂移'
+        '（numbers drift across environments）。锁定正式值：'
+        'Ensemble 0.3551% · XGBoost 0.3558% · '
+        'Naive 0.3667% · LSTM 0.4387% MAPE（最终测试）。'
     )
+
+    # --- FORMAL (locked) stage ----------------------------------------------
+    X.stage_head(
+        'formal',
+        '正式研究结果 · 2024–2025 最终测试',
+        badge_html=X.locked_badge(C.BADGE_LOCKED_RESEARCH),
+    )
+    X.note(
+        '正式数字在研究环境（Python 3.9.13 锁定矩阵）中产出并锁定，'
+        '不在本页重新运行；上方演示只用于交互展示。'
+    )
+    X.kpi_strip([
+        ('Ensemble', '0.3551%', '验证加权 · 正式锁定', 'accent'),
+        ('XGBoost', '0.3558%', '最优单一模型', 'accent'),
+        ('Naive', '0.3667%', '基线对照'),
+        ('LSTM', '0.4387%', 'PyTorch'),
+    ], variant='lean')
+    X.jump_button('查看完整 8 模型锁定表 →', '模型评估')
 
 
 # --------------------------------------------------------------------------
@@ -118,6 +145,7 @@ def _get_payload(df: pd.DataFrame) -> Optional[Dict]:
             with st.spinner(
                 'Training Prophet + XGBoost + LSTM on the 132 official '
                 'observations — one-time per session (~30–90 s)…'
+                '（本会话仅训练一次）'
             ):
                 st.session_state[_PAYLOAD_KEY] = _train_payload(df)
         except Exception as exc:  # noqa: BLE001 — show honest error, keep app alive
@@ -125,7 +153,9 @@ def _get_payload(df: pd.DataFrame) -> Optional[Dict]:
             st.error(
                 f'Session training failed ({type(exc).__name__}). '
                 f'The page is left without demo numbers rather than shown '
-                f'invented ones. Please reload the app and retry.'
+                f'invented ones. Please reload the app and retry. '
+                f'（会话内训练失败：本页宁可不显示演示数字，'
+                f'也不显示虚构数字。请刷新应用后重试。）'
             )
             return None
     return st.session_state[_PAYLOAD_KEY]
@@ -208,7 +238,8 @@ def _train_payload(df: pd.DataFrame) -> Dict:
 
 
 # --------------------------------------------------------------------------
-def _future_chart(df: pd.DataFrame, payload: Dict, which: str) -> None:
+def _future_chart(df: pd.DataFrame, payload: Dict,
+                  selected: list) -> None:
     import plotly.graph_objects as go
 
     fig = go.Figure()
@@ -221,8 +252,6 @@ def _future_chart(df: pd.DataFrame, payload: Dict, which: str) -> None:
         hovertemplate='%{x|%Y-%m}<br>PPI index %{y:.2f}<extra></extra>',
     ))
 
-    selected = ['prophet', 'xgboost', 'lstm'] if which == 'All three models' \
-        else [{'Prophet': 'prophet', 'XGBoost': 'xgboost', 'LSTM': 'lstm'}[which]]
     for key in selected:
         pts = payload['future'][key]
         fig.add_trace(go.Scatter(
@@ -241,9 +270,9 @@ def _future_chart(df: pd.DataFrame, payload: Dict, which: str) -> None:
         annotation_position='top left',
         annotation_font_size=10.5, annotation_font_color='#64748b',
     )
-    X.style_figure(fig, legend=True, height=430,
+    X.style_figure(fig, legend=True, height=460,
                    x_title='Month', y_title='PPI index')
-    X.show_chart(fig, height=430)
+    X.show_chart(fig, height=460)
 
 
 def _backtest_chart(payload: Dict) -> None:
@@ -266,10 +295,10 @@ def _backtest_chart(payload: Dict) -> None:
             name=f'{MODEL_LABELS[key]} (backtest)',
             hovertemplate='%{x|%Y-%m}<br>%{y:.2f}<extra></extra>',
         ))
-    X.style_figure(fig, legend=True, height=390,
+    X.style_figure(fig, legend=True, height=360,
                    x_title='Month (2024-01 → 2025-12)',
                    y_title='PPI index')
-    X.show_chart(fig, height=390)
+    X.show_chart(fig, height=360)
 
 
 def _demo_metrics_frame(payload: Dict) -> pd.DataFrame:
