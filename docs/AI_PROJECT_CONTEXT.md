@@ -2,8 +2,8 @@
 
 > **目的**：本文件供新 Claude Code 会话在没有聊天历史的情况下快速理解项目状态。
 > **生成时间**：2026-09-03
-> **当前 Git HEAD**：`251decf`（P0.9.5 环境锁定 commit · 历史章节中的旧 HEAD 引用以本行为准）
-> **最近追加**：§15 P0.9.4（Cloud runtime UNKNOWN + 架构决策）· §16 P0.9.5（环境锁定，2026-09-03 commit `251decf`）
+> **当前 Git HEAD**：`0e95bcb`（P0.9.5 环境锁定 commit · 历史章节中的旧 HEAD 引用以本行为准；P0.9.6 为文档写入时的基线，P0.9.6 commit 追加于 §17）
+> **最近追加**：§15 P0.9.4（Cloud runtime UNKNOWN + 架构决策）· §16 P0.9.5（环境锁定，2026-09-03 commit `0e95bcb`，旧版误写 251decf 已更正）· §17 P0.9.6（App 数据契约修复）
 
 ---
 
@@ -341,5 +341,30 @@ Cloud Python 仍为 UNKNOWN（§15.1 证据未变）。`requirements-deploy.txt`
 
 ### 16.5 Git 状态更正（相对本文档旧章节）
 
-- 当前 HEAD = `251decf`（P0.9.5 环境锁 commit，2026-09-03）；local main 领先 `origin/main`（=`3de3695`）**14** 个 commit（13 个 research/修复 + 1 个 P0.9.5 环境锁）。
+- P0.9.5 的实际提交为 `0e95bcb`（2026-09-03，chore: lock research and deployment environments）。本文件旧版多处写 `251decf`——该 hash 在仓库中不存在，属于写作期占位符，现已在本文档全部更正为 `0e95bcb`。
+- P0.9.5 提交后 local main 领先 `origin/main`（=`3de3695`）**14** 个 commit（13 个 research/修复 + 1 个 P0.9.5 环境锁）。
 - 本地 research 修复（P0.5/P0.6/path fix）尚未在 origin/main 上 → Cloud 代码基线 = `3de3695`。**禁止自行 push**。
+
+---
+
+## 17. P0.9.6 App 数据契约修复（2026-09-03 · 已交付 · commit 见 git log）
+
+### 17.1 问题
+
+P0.1 commit `587f9c6` 删除 4 个年度行业 fallback CSV 后，app 顶层 `load_data()` 仍按年度 schema（date/price/material）调用旧 loader，拒绝 data/raw 中唯一剩余的月度文件（date/ppi_index/yoy_pct/ytd_index）→ 空 DataFrame → 顶层双 st.error + st.stop()，Tab 1-7 全部不可达。P0.9.5 AppTest 在两个 cwd 下逐字复现（详见 docs/ENVIRONMENT.md §8.1 item5）。
+
+### 17.2 修复内容（代码只动 app + 文档）
+
+| 项 | 内容 |
+|---|---|
+| 顶层数据契约 | `load_data()` 改读 `data/raw/工业PPI_全国月度_2015-2025.csv`（132 点唯一真实月度序列），路径基于 `Path(__file__)` 解析，与 cwd 无关；加载错误区分为 missing / schema 不兼容 / unreadable，文案对真实失败模式，仅在确实无法取得数据时 st.stop |
+| Tab 1-7 可达性 | 顶部摘要区与 Tab 1-6 全部从月度序列真实计算；年度行业视图（依赖已删除的 44 点估算）标记下线不伪造（Tab2/Tab4 deprecated，Tab3 官方同比口径保留） |
+| Tab 7 重接（用户选择方案 C 轻量接线） | 实时三模型训练改接真实 API `train_all_monthly_models`（108/24 同正式切分 + P0.3 锁定 LSTM 超参，内部边界强校验）；预测图改为 2024-01~2025-12 OOS 回测图（真实 test_pred vs test_actuals）；每会话 LSTM 网格搜索与 3 模型集成重跑移除，改为静态文字指向 Tab 5 正式锁定结果；0.24%/0.28%/15% 等硬编码 demo 数字删除 |
+| macOS torch 死锁 | Streamlit 在非主线程执行脚本，torch 首次并行区与 libomp 嵌套冲突导致 LSTM 训练挂起（AppTest 实测，server 模式同路径）→ Tab7 训练前 `torch.set_num_threads(1)`（108 点训练量下无性能损失）；3.9 探针 4.7s 通过且 LSTM MAPE=0.4387% 与锁定值一致 |
+| 验证 | 双环境（3.9.13 venv / 3.12.14 venv）× 双 cwd（repo root / /tmp）AppTest 全 PASS；headless server smoke 200；compileall 过；metrics 9/9；dependency import audit 无缺口；locked research numbers 保护审计干净（grep 0.3551/0.5664/0.3558/0.4387/1.0192/1.5958/1.4087 仅出现在 Tab5 静态区） |
+
+### 17.3 Git 状态（P0.9.6 提交后）
+
+- local main 领先 `origin/main`（=`3de3695`）**15** 个 commit（13 个 research/修复 + 1 个 P0.9.5 环境锁 + 1 个 P0.9.6 数据契约修复）。
+- 文档写入时基线 = `0e95bcb`（P0.9.5）；P0.9.6 提交本身不在此文件中自指 hash（避免再次出现 251decf 式占位符错误），以 git log 为准。
+- **禁止自行 push**：Cloud 代码基线仍 = `3de3695`，P0.9.6 修复（含 Tab7 重接）只在本地；Cloud 的 data/raw 若仍含 fallback CSV，与本地 data/raw（仅 1 个真实文件）不同，push 前需用户决策。

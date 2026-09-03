@@ -268,7 +268,7 @@ python3 scripts/environment_fingerprint.py
 
 The formal research results above (0.3551% etc.) are **locked to the verified research environment** (Python 3.9.13 matrix; see `docs/ENVIRONMENT.md` and `requirements-research.txt`). They are 2024-2025 low-volatility-regime results, not a guarantee that every run reproduces them.
 
-The Streamlit demo (`app/streamlit_app.py`) **re-trains models live on every session** (Prophet / XGBoost / LSTM grid search + ensemble over the full 132-point CSV), so the numbers it displays are live-demo metrics and are **not** the formal research results — they may drift across environments and runs. Do not quote demo numbers as the locked research result.
+The Streamlit demo (`app/streamlit_app.py`) **re-trains three models live on every session** (Prophet / XGBoost / LSTM), using the same 108/24 split as the formal experiment and the P0.3-locked LSTM hyperparameters (P0.9.6 wiring; no per-session grid search, no per-session ensemble re-run — the locked 7-model ensemble results live on Tab 5 only). The demo metrics are **not** the formal research results — they may drift across environments and runs. Do not quote demo numbers as the locked research result.
 
 The streamlit app runs at https://civil-engineering-ppi.streamlit.app/. Its runtime is managed by Streamlit Cloud; deployment dependencies are documented in `requirements-deploy.txt` (cloud runtime itself has not been independently verified).
 

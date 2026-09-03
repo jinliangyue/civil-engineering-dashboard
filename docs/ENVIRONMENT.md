@@ -128,7 +128,7 @@ prophet_cmdstan_version = 2.37.0
 ## §8 Research vs Live Demo（数字分层铁律）
 
 - 正式（LOCKED，唯一可对外引用）：P0.5 Final Test Ensemble MAPE **0.3551%** / R² 0.5664；XGBoost 0.3558%；LSTM 0.4387%；P0.6 三模型 Mean MAPE（见 AI_PROJECT_CONTEXT §3/§4）。
-- Live Demo（每次会话实时重训练，**不是**正式结果）：`app/streamlit_app.py` Tab 7 页面 L427-467 用 `@st.cache_data` 包 `train_monthly_models(test_months=24)` + `grid_search_lstm(epochs=50, n_splits=3)` + `train_ensemble(...)` 实时重跑；页面评估表/权重饼图/预测图全部来自该次运行，随环境（pandas/numpy/prophet 版本）漂移。Tab 7 方法论区出现过的 0.24%/0.28% 是 demo 运行时数值（3 模型集成，结构不同于正式 7 模型集成）。
+- Live Demo（每次会话实时重训练，**不是**正式结果）：`app/streamlit_app.py` Tab 7（P0.9.6 重接后）用 `@st.cache_data` 包 `train_monthly_models(df_train_val, df_test, LSTM_BEST_PARAMS)`，内部调用 `src.analyzer.monthly_lstm.train_all_monthly_models()`——同正式实验的 108/24 切分（至 2023-12 / 自 2024-01）+ P0.3 锁定 LSTM 超参，一次完成 Prophet/XGBoost/LSTM 的 24 月滚动一步 OOS；页面评估表与 OOS 回测图全部来自该次运行，随环境（pandas/numpy/prophet 版本）漂移，属 demo 复跑值。每会话网格搜索与 3 模型集成重跑已移除（P0.9.6 方案 C），正式 7 模型集成权重与指标只出现在 Tab 5 静态区。
 - App 内 Tab 5 静态引用正式数字（0.3551%/0.3558%/0.4387%/1.0192%/1.5958%/1.4087%）——这两组数字并存是**正确分层**，不是矛盾。
 - 任何人在简历/文档中引用 0.3551% 时，必须注明它是「2024-2025 低波动区间的 locked research result」，不是 Cloud 每次运行的保证，也不是对未来 PPI 的预测承诺。
 - 已废弃数字（不得再作为正式结果宣传）：0.24%/0.241%、0.283%、15%、旧 TF LSTM 数字、44 点手工估算、2026 fallback 预测值。
@@ -147,13 +147,27 @@ prophet_cmdstan_version = 2.37.0
    - Cloud 推演（不可观察）：origin/main=`3de3695` 的 data/raw 仍含这 4 个 fallback CSV（12 行/个，source 列自标「国家统计局（公开估算）」，即已删除的 44 点估算数据）→ 按代码路径 Cloud 顶层可启动，但 Tab 1-6 年度视图实际渲染的是该 fallback 数据。若未来 push 当前 HEAD 而不修此缺陷，live app 会从「可启动（用 fallback 年度数据）」变成「完全不可启动」。
    - 修复方向（未实施，超出 P0.9.5 只审计不改代码的范围）：顶层数据流改走 `src/ppi_monthly.load_monthly_ppi()`（132 点官方月度序列，Tab7 已在用），或按 Tab 拆分数据加载契约。需要独立 fix 轮 + 用户决策。
 
+### 8.2 P0.9.6 修复状态（2026-09-03 · App Data Contract Repair）
+
+P0.9.6 已按用户批准方案实施（commit 见 §9.3；代码 diff 只动 `app/streamlit_app.py` + `src/data_loader.py` 适配层 + `requirements-deploy.txt`，未触碰 src/analyzer / src/evaluation）：
+
+| 8.1 待修项 | P0.9.6 处理 | 状态 |
+|---|---|---|
+| 5（顶层数据契约 / st.stop / Tab1-7 不可达） | 顶层 `load_data()` 改走月度 loader（data/raw 唯一真实 CSV），cwd 无关路径基于 `Path(__file__)`；仅文件缺失/格式错误才 st.stop，错误文案区分 missing / schema 不兼容 | 已修复 |
+| 1（L396「检查 akshare 安装」文案不实） | Tab7 错误文案改为本地 CSV 读取异常说明，明确不联网、无 fallback | 已修复 |
+| 2（数据来源叙述与本地 CSV 实际路径不符） | Tab7 方法论区改为「akshare 仅作初始抓取工具，运行期读本地 CSV」 | 已修复 |
+| 4（0.24%/0.28%/15% 硬编码 demo 数字） | 已删除；方法论区重写为数字分层（Tab7 demo 复跑 vs Tab5 正式锁定） | 已修复 |
+| 3（spinner 时长文案） | 新文案「首次约 30-90 秒」，3.9 venv 实测冷缓存含 LSTM 滚动约 1-3 分钟，仍属近似说明 | 部分（文案诚实化，非精确计时） |
+
+Tab 7 设计决策（用户选择方案 C 轻量接线）：保留每会话三模型实时训练 demo（同切分同锁定超参，非正式实验复跑）；预测图改为 2024-01~2025-12 OOS 回测图（真实 test_pred vs test_actuals）；移除每会话 LSTM 网格搜索与 3 模型集成重跑，改为静态文字指向 Tab 5 正式结果；方法论修正 demo/正式数字分层。
+
 ---
 
 ## §9 变更规则
 
 1. **改 research 锁**（requirements-research.txt 或 §2 矩阵）：必须先停下报告，开独立 lock 轮，重跑 P0.5/P0.6 全量核验后才能声称新 baseline。
 2. **改 deploy 锁**：先在目标 Python（当前 3.12 smoke）验证安装 + `compileall` + 启动检查；若声称 Cloud 复现，必须先取得 Cloud runtime 证据。
-3. **Cloud 部署链路**：本地 research 修复（P0.5/P0.6/path fix，本地 main 领先 origin/main 13 个 commit）**尚未 push**；Cloud 代码基线停留在 `3de3695`。任何 push 都需用户明确指示——本阶段禁止 push。
+3. **Cloud 部署链路**：本地 research 修复（P0.5/P0.6/path fix/P0.9.6，本地 main 领先 origin/main 15 个 commit）**尚未 push**；Cloud 代码基线停留在 `3de3695`。任何 push 都需用户明确指示——本阶段禁止 push。
 4. 环境指纹必须用 `scripts/environment_fingerprint.py` 产生；版本信息不得手抄。
 
 ---

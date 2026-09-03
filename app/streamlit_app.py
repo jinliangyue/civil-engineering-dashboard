@@ -1,5 +1,5 @@
 """
-Streamlit 主程序 - 年度 PPI 跨行业分析仪表盘
+Streamlit 主程序 - 中国工业 PPI 月度分析与预测（官方月度数据契约 · P0.9.6）
 作者：十八 · 22 岁土木工程准大四 · 2026 秋招简历项目
 """
 
@@ -15,11 +15,19 @@ import plotly.graph_objects as go
 import plotly.express as px
 from scipy import stats
 
-from src.data_loader import load_all_raw, get_data_summary
+from src.ppi_monthly import load_monthly_ppi, get_monthly_summary
+
+# 数据契约（P0.9.6）：data/raw/ 下的官方月度 CSV 是唯一数据源。
+# 旧年度行业 schema（date/price/material）对应的数据已在 P0.1 删除，
+# 顶层不再经过 src.data_loader。路径基于 __file__，与当前工作目录无关。
+PROJECT_ROOT = Path(__file__).parent.parent
+RAW_DATA_DIR = PROJECT_ROOT / 'data' / 'raw'
+MONTHLY_PPI_FILE = RAW_DATA_DIR / '工业PPI_全国月度_2015-2025.csv'
+REQUIRED_MONTHLY_COLUMNS = ['date', 'ppi_index', 'yoy_pct', 'ytd_index']
 
 
 st.set_page_config(
-    page_title='中国工业 PPI 跨行业分析',
+    page_title='中国工业 PPI 分析与预测',
     page_icon='📊',
     layout='wide',
     initial_sidebar_state='expanded',
@@ -49,38 +57,48 @@ st.markdown('''
 ''', unsafe_allow_html=True)
 
 
-def ensure_data_exists():
-    """
-    启动时检查 data/raw/ 是否有官方月度 PPI CSV (data/raw/工业PPI_全国月度_2015-2025.csv)
-
-    不再调用 generate_fallback.py（该脚本已于 P0.1 删除）。
-    如果官方数据文件不存在，Streamlit 启动后会在 load_data() 中显式报错。
-    """
-    raw_dir = Path(__file__).parent.parent / 'data' / 'raw'
-    official_file = raw_dir / '工业PPI_全国月度_2015-2025.csv'
-    if official_file.exists():
-        return
-    # 官方文件不存在 — 不做任何 fallback，让 load_data 显式报错
-    return
-
-
 @st.cache_data
 def load_data():
-    ensure_data_exists()
-    df_raw = load_all_raw()
-    if df_raw.empty:
-        return pd.DataFrame()
-    df = df_raw.copy()
-    df['date'] = pd.to_datetime(df['date'])
-    df['year'] = df['date'].dt.year
-    return df
+    """顶层数据契约：官方月度 PPI CSV（132 点全国总指数，唯一数据源）。
+
+    返回 (df, error)：
+    - error 为 None      → 成功，df 含 date / ppi_index / yoy_pct / ytd_index / year
+    - error == 'missing' → 文件不存在（对应文案：Official monthly PPI data file not found）
+    - error 以 'schema' 开头 → 文件存在但字段与当前组件不兼容
+    - error == 'unreadable' → 文件存在但内容无法解析
+    先自查文件存在性与必需列再调 loader，避免 loader 的异常路径触发 akshare 联网抓取。
+    不做任何 fallback；不修改真实 CSV；不产生估算数据。
+    """
+    if not MONTHLY_PPI_FILE.exists():
+        return pd.DataFrame(), 'missing'
+    try:
+        probe = pd.read_csv(MONTHLY_PPI_FILE, encoding='utf-8-sig', nrows=5)
+    except Exception:
+        return pd.DataFrame(), 'unreadable'
+    missing = [c for c in REQUIRED_MONTHLY_COLUMNS if c not in probe.columns]
+    if missing:
+        return pd.DataFrame(), 'schema:' + ','.join(missing)
+    df_m = load_monthly_ppi()
+    if df_m.empty:
+        return pd.DataFrame(), 'unreadable'
+    df_m = df_m.copy()
+    df_m['date'] = pd.to_datetime(df_m['date'])
+    df_m = df_m.sort_values('date').reset_index(drop=True)
+    df_m['year'] = df_m['date'].dt.year
+    return df_m, None
 
 
-df = load_data()
+df, load_error = load_data()
 
-if df.empty:
-    st.error('⚠️ 未找到官方月度 PPI 数据文件: data/raw/工业PPI_全国月度_2015-2025.csv')
-    st.error('请确认官方数据文件已就位，或重新部署项目。本项目不再使用任何 fallback 数据。')
+if load_error is not None:
+    if load_error == 'missing':
+        st.error('⚠️ 未找到官方月度 PPI 数据文件（Official monthly PPI data file not found）：data/raw/工业PPI_全国月度_2015-2025.csv')
+        st.error('请确认 data/raw/ 下存在已提交的官方数据文件后重新部署或重启。本项目不生成、不使用任何 fallback 数据。')
+    elif load_error.startswith('schema'):
+        st.error('PPI data schema is incompatible with this app component：官方数据文件存在，但字段与当前组件不兼容（缺失字段：' + load_error.split(':', 1)[1] + '）。')
+        st.error('当前组件预期字段：date / ppi_index / yoy_pct / ytd_index。请勿修改真实数据文件，也不要生成估算数据来适配旧版视图。')
+    else:
+        st.error('官方月度 PPI 数据文件存在但无法解析：data/raw/工业PPI_全国月度_2015-2025.csv')
     st.stop()
 
 
@@ -89,12 +107,7 @@ st.sidebar.markdown('## 📊 中国工业 PPI 分析')
 st.sidebar.markdown('---')
 st.sidebar.markdown('### 数据筛选')
 
-materials = sorted(df['material'].unique())
-selected_materials = st.sidebar.multiselect(
-    '选择行业',
-    materials,
-    default=materials,
-)
+st.sidebar.markdown('数据维度：全国工业 PPI 总指数（官方月度 · 132 点真实数据）')
 
 year_min = int(df['year'].min())
 year_max = int(df['year'].max())
@@ -109,14 +122,13 @@ st.sidebar.markdown('---')
 st.sidebar.markdown('### 项目信息')
 st.sidebar.markdown('''
 - 作者：十八
-- 数据来源：国家统计局 PPI
-- 行业数：4 个
-- 时间跨度：2015-2025
+- 数据来源：国家统计局 PPI（官方月度）
+- 数据维度：全国总指数
+- 时间跨度：2015-2025（132 点）
 - 技术栈：Python + Plotly + Streamlit
 ''')
 
 df_filtered = df[
-    (df['material'].isin(selected_materials)) &
     (df['year'] >= year_range[0]) &
     (df['year'] <= year_range[1])
 ].copy()
@@ -127,211 +139,136 @@ if df_filtered.empty:
 
 
 # 主页面
-st.markdown('<div class="main-header">📊 中国工业 PPI 跨行业分析平台</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">4 大工业行业价格指数跨年度走势 + 相关性 + 预测 · 公开数据驱动</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">📊 中国工业 PPI 分析与预测平台</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">全国工业 PPI 月度总指数（2015-2025 · 132 点官方真实数据）· 走势 + 同比 + 机器学习模型 · 公开数据驱动</div>', unsafe_allow_html=True)
 
-# 摘要卡片
-summary = get_data_summary(df_filtered)
+# 摘要卡片（官方月度口径）
+summary = get_monthly_summary(df_filtered)
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.metric('数据点', f"{summary['total_rows']:,}")
+    st.metric('月度数据点', f"{summary['total_months']:,}")
 with col2:
-    st.metric('行业数', len(summary['materials']))
+    st.metric('最新 PPI', f"{summary['ppi_index']['latest']:.1f}")
 with col3:
-    st.metric('时间跨度', f"{summary['date_range']['start'][:4]} - {summary['date_range']['end'][:4]}")
+    st.metric('最新同比 %', f"{summary['yoy_pct']['latest']:.1f}%")
 with col4:
-    mean_price = summary['price_range']['mean']
-    st.metric('平均 PPI', f'{mean_price:.1f}')
+    st.metric('时间跨度', f"{summary['date_range']['start'][:4]} - {summary['date_range']['end'][:4]}")
 
 st.markdown('---')
 
 # Tab 切换
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     '📈 趋势分析',
-    '🔗 行业相关性',
+    '🔗 行业相关性（已下线）',
     '📊 同比变动',
-    '🔮 年度预测',
-    '🤖 ML（年度）',
+    '🔮 年度预测（已下线）',
+    '🤖 ML 正式结果',
     '📋 数据说明',
     '🕐 月度时间序列',
 ])
 
 
-# ============ Tab 1: 趋势分析 ============
+# ============ Tab 1: 趋势分析（官方月度数据 · 全国总指数）============
 with tab1:
-    st.markdown('### 4 行业 PPI 跨年度走势')
+    st.markdown('### 全国工业 PPI 月度指数走势')
+    st.markdown('原 4 行业年度对比依赖已删除的手工估算数据（P0.1），该视图已下线。当前唯一官方真实序列为全国总指数月度值；指数口径为上年同月 = 100，指数 - 100 即当月同比 %。')
     fig = go.Figure()
-    colors = {'黑色金属冶炼': '#3b82f6', '有色金属冶炼': '#ef4444', '黑色金属矿采选': '#10b981', '有色金属矿采选': '#f59e0b'}
-    for material in selected_materials:
-        sub = df_filtered[df_filtered['material'] == material].sort_values('year')
-        fig.add_trace(go.Scatter(
-            x=sub['year'],
-            y=sub['price'],
-            mode='lines+markers',
-            name=material,
-            line=dict(color=colors.get(material, '#64748b'), width=2.5),
-            marker=dict(size=8),
-            hovertemplate='<b>%{fullData.name}</b><br>年份：%{x}<br>PPI：%{y:.1f}<extra></extra>',
-        ))
+    fig.add_trace(go.Scatter(
+        x=df_filtered['date'],
+        y=df_filtered['ppi_index'],
+        mode='lines+markers',
+        name='PPI 月度指数',
+        line=dict(color='#3b82f6', width=2),
+        marker=dict(size=4),
+        hovertemplate='月份：%{x|%Y-%m}<br>PPI：%{y:.1f}<extra></extra>',
+    ))
     fig.add_hline(y=100, line_dash='dash', line_color='gray', opacity=0.5, annotation_text='基准 100', annotation_position='top right')
     fig.update_layout(
-        title='中国 4 大工业行业 PPI 跨年度走势（2015-2025）',
-        xaxis_title='年份',
-        yaxis_title='PPI 指数（上年=100）',
+        title='中国工业 PPI 月度指数走势（官方月度数据）',
+        xaxis_title='月份',
+        yaxis_title='PPI 指数（上年同月=100）',
         template='plotly_white',
         hovermode='x unified',
         height=500,
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
     )
     st.plotly_chart(fig, use_container_width=True)
-    st.markdown('### 长期趋势统计')
-    rows = []
-    for material in selected_materials:
-        sub = df_filtered[df_filtered['material'] == material].sort_values('year')
-        years = sub['year'].values
-        prices = sub['price'].values
-        slope, intercept, r_value, p_value, std_err = stats.linregress(years, prices)
-        rows.append({
-            '行业': material,
-            '起始值': round(float(prices[0]), 1),
-            '结束值': round(float(prices[-1]), 1),
-            '总变动 %': round((float(prices[-1]) / float(prices[0]) - 1) * 100, 2),
-            '年均变动': round(slope, 2),
-            'R²': round(r_value ** 2, 4),
-        })
-    st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
-
-# ============ Tab 2: 相关性 ============
-with tab2:
-    st.markdown('### 跨行业 PPI 相关性热图')
-    df_pivot = df_filtered.pivot_table(values='price', index='year', columns='material')
-    corr = df_pivot.corr()
-    fig = go.Figure(data=go.Heatmap(
-        z=corr.values,
-        x=corr.columns,
-        y=corr.index,
-        colorscale='RdBu_r',
-        zmid=0,
-        zmin=-1,
-        zmax=1,
-        text=corr.round(2).values,
-        texttemplate='%{texttexttemplate}'.replace('texttemplate', 'texttemplate') + '%{text:.2f}',
-        textfont=dict(size=14),
-        colorbar=dict(title='相关系数'),
+    st.markdown('### 年度平均指数（月度均值聚合）')
+    df_year = df_filtered.groupby('year')['ppi_index'].mean().reset_index()
+    fig2 = go.Figure(go.Bar(
+        x=df_year['year'],
+        y=df_year['ppi_index'],
+        marker_color='#3b82f6',
+        hovertemplate='年份：%{x}<br>年度平均指数：%{y:.2f}<extra></extra>',
     ))
-    fig.update_layout(
-        title='4 大工业行业 PPI 相关性',
+    fig2.add_hline(y=100, line_dash='dash', line_color='gray', opacity=0.5, annotation_text='基准 100')
+    fig2.update_layout(
+        title='各年度平均 PPI 指数（12 个月官方指数均值）',
+        xaxis_title='年份',
+        yaxis_title='年度平均指数（口径：上年同月=100）',
         template='plotly_white',
-        height=500,
+        height=400,
     )
-    st.plotly_chart(fig, use_container_width=True)
-    st.markdown('### 相关性解读')
-    if len(selected_materials) >= 2:
-        for i in range(len(selected_materials)):
-            for j in range(i + 1, len(selected_materials)):
-                m1, m2 = selected_materials[i], selected_materials[j]
-                if m1 in corr.columns and m2 in corr.columns:
-                    c = corr.loc[m1, m2]
-                    if c > 0.85:
-                        level = '极强'
-                    elif c > 0.6:
-                        level = '强'
-                    elif c > 0.3:
-                        level = '中等'
-                    else:
-                        level = '弱'
-                    st.markdown(f'- **{m1}** vs **{m2}**：{c:.4f}（{level}相关）')
+    st.plotly_chart(fig2, use_container_width=True)
+
+    st.markdown('### 长期趋势统计（年度均值序列）')
+    if len(df_year) >= 2:
+        slope, intercept, r_value, p_value, std_err = stats.linregress(df_year['year'].values, df_year['ppi_index'].values)
+        st.dataframe(pd.DataFrame([{
+            '起始年均': round(float(df_year['ppi_index'].iloc[0]), 2),
+            '结束年均': round(float(df_year['ppi_index'].iloc[-1]), 2),
+            '总变动（指数点）': round(float(df_year['ppi_index'].iloc[-1] - df_year['ppi_index'].iloc[0]), 2),
+            '年均变动（指数点/年）': round(float(slope), 3),
+            'R²': round(float(r_value ** 2), 4),
+        }]), use_container_width=True)
+        st.markdown('注：年度平均指数为 12 个月官方指数的算术平均。该统计是描述性观察，不做外推预测（实时模型回测见 Tab 7）。')
+    else:
+        st.markdown('当前筛选时间范围不足 2 个年份，跳过回归统计。')
 
 
-# ============ Tab 3: 同比变动 ============
+# ============ Tab 2: 行业相关性（已下线）============
+with tab2:
+    st.markdown('### 跨行业 PPI 相关性（已下线）')
+    st.markdown('该视图原本基于 4 行业 × 11 年 = 44 个手工估算年度数据点（P0.1 commit `587f9c6` 已删除）计算行业间价格相关矩阵，数据不是可验证来源，已永久删除。')
+    st.markdown('删除后当前唯一官方真实序列为全国 PPI 总指数月度值，单条序列不存在第二行业维度，跨行业相关性在真实数据契约下无法计算，故本视图下线，不做替代性伪造。')
+    st.markdown('替代路径：Tab 1 全国指数走势与年度均值、Tab 3 官方月度同比口径、Tab 5 正式离线实验、Tab 7 实时月度模型回测。')
+
+
+# ============ Tab 3: 同比变动（官方月度 yoy_pct 直出）============
 with tab3:
-    st.markdown('### 各行业 PPI 同比变动（%）')
-    df_yoy = df_filtered.copy()
-    df_yoy = df_yoy.sort_values(['material', 'year'])
-    df_yoy['yoy'] = df_yoy.groupby('material')['price'].pct_change() * 100
+    st.markdown('### 全国工业 PPI 月度同比（官方发布口径，%）')
+    st.markdown('原各行业年度同比柱状图基于已删除的手工估算年度数据（P0.1 commit `587f9c6`），该视图已下线。官方月度 CSV 自带 yoy_pct 列（统计局发布口径），此处直接展示，不做二次计算、不混入任何估算。')
+    df_yoy = df_filtered.dropna(subset=['yoy_pct']).sort_values('date')
     fig = go.Figure()
-    for material in selected_materials:
-        sub = df_yoy[df_yoy['material'] == material].dropna(subset=['yoy'])
-        fig.add_trace(go.Bar(
-            x=sub['year'],
-            y=sub['yoy'],
-            name=material,
-            marker_color=colors.get(material, '#64748b'),
-            hovertemplate='<b>%{fullData.name}</b><br>年份：%{x}<br>同比：%{y:.2f}%<extra></extra>',
-        ))
+    marker_color = ['#ef4444' if v < 0 else '#3b82f6' for v in df_yoy['yoy_pct']]
+    fig.add_trace(go.Bar(
+        x=df_yoy['date'],
+        y=df_yoy['yoy_pct'],
+        marker_color=marker_color,
+        hovertemplate='月份：%{x|%Y-%m}<br>同比：%{y:.2f}%<extra></extra>',
+    ))
     fig.add_hline(y=0, line_color='black', line_width=0.5)
     fig.update_layout(
-        title='各行业 PPI 同比变动',
-        xaxis_title='年份',
-        yaxis_title='同比变动 %',
+        title='全国工业 PPI 月度同比变动（官方口径）',
+        xaxis_title='月份',
+        yaxis_title='同比 %',
         template='plotly_white',
-        barmode='group',
         height=500,
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
     )
     st.plotly_chart(fig, use_container_width=True)
+    if len(df_yoy) > 0:
+        neg = int((df_yoy['yoy_pct'] < 0).sum())
+        row_min = df_yoy.loc[df_yoy['yoy_pct'].idxmin()]
+        row_max = df_yoy.loc[df_yoy['yoy_pct'].idxmax()]
+        st.markdown(f'区间内同比为负的月份：{neg} 个 / {len(df_yoy)} 个月；最低同比 {row_min["yoy_pct"]:.2f}%（{row_min["date"]:%Y-%m}）；最高同比 {row_max["yoy_pct"]:.2f}%（{row_max["date"]:%Y-%m}）。红柱为负、蓝柱为正。')
 
 
-# ============ Tab 4: 预测 ============
+# ============ Tab 4: 年度线性外推预测（已下线）============
 with tab4:
-    st.markdown('### 2026-2028 线性回归预测')
-    forecast_years = st.slider('预测未来年数', 1, 5, 3)
-    predictions = []
-    for material in selected_materials:
-        sub = df_filtered[df_filtered['material'] == material].sort_values('year')
-        years = sub['year'].values
-        prices = sub['price'].values
-        slope, intercept, r_value, p_value, std_err = stats.linregress(years, prices)
-        last_year = int(years[-1])
-        for i in range(1, forecast_years + 1):
-            future_year = last_year + i
-            pred = intercept + slope * future_year
-            n = len(years)
-            t_val = stats.t.ppf(0.975, n - 2)
-            se = std_err * np.sqrt(1 + 1/n + (future_year - years.mean()) ** 2 / np.sum((years - years.mean()) ** 2))
-            predictions.append({
-                '行业': material,
-                '年份': future_year,
-                '预测 PPI': round(pred, 2),
-                '下界 95%': round(pred - t_val * se, 2),
-                '上界 95%': round(pred + t_val * se, 2),
-                'R²': round(r_value ** 2, 4),
-            })
-    df_pred = pd.DataFrame(predictions)
-    st.dataframe(df_pred, use_container_width=True)
-    # 可视化
-    fig = go.Figure()
-    for material in selected_materials:
-        sub = df_filtered[df_filtered['material'] == material].sort_values('year')
-        fig.add_trace(go.Scatter(
-            x=sub['year'],
-            y=sub['price'],
-            mode='lines+markers',
-            name=f'{material} (历史)',
-            line=dict(color=colors.get(material, '#64748b'), width=2),
-            marker=dict(size=8),
-        ))
-        pred_sub = df_pred[df_pred['行业'] == material]
-        fig.add_trace(go.Scatter(
-            x=pred_sub['年份'],
-            y=pred_sub['预测 PPI'],
-            mode='lines+markers',
-            name=f'{material} (预测)',
-            line=dict(color=colors.get(material, '#64748b'), width=2, dash='dash'),
-            marker=dict(size=8, symbol='square'),
-        ))
-    fig.add_vline(x=year_max + 0.5, line_dash='dot', line_color='gray', opacity=0.5)
-    fig.update_layout(
-        title='历史 + 预测可视化',
-        xaxis_title='年份',
-        yaxis_title='PPI 指数（上年=100）',
-        template='plotly_white',
-        hovermode='x unified',
-        height=500,
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    st.markdown('### 年度线性外推预测（已下线）')
+    st.markdown('该视图原本基于 4 行业 × 11 年 = 44 个手工估算年度数据点做线性回归外推（P0.1 commit `587f9c6` 已删除），数据不是可验证来源，已永久删除。')
+    st.markdown('真实数据契约下唯一官方序列为全国月度总指数（132 点）；对单条真实序列做无依据的年度外推不满足数据真实性原则，故本视图下线，不生成替代性伪造预测。')
+    st.markdown('正式离线实验结果见 Tab 5（锁定数字）；基于真实月度数据的实时模型回测见 Tab 7（每次会话实时重跑，属 demo 数值，不是正式锁定结果）。')
 
 
 # ============ Tab 5: 机器学习预测（已废弃）============
@@ -351,35 +288,35 @@ with tab5:
 
 # ============ Tab 6: 数据说明 ============
 with tab6:
-    st.markdown('### 数据摘要')
+    st.markdown('### 数据摘要（官方月度口径）')
     st.json(summary)
     st.markdown('### 完整数据预览')
-    st.dataframe(df_filtered[['date', 'material', 'price', 'unit', 'region']].sort_values(['material', 'date']), use_container_width=True)
+    st.dataframe(df_filtered[['date', 'ppi_index', 'yoy_pct', 'ytd_index']], use_container_width=True)
     csv = df_filtered.to_csv(index=False, encoding='utf-8-sig')
     st.download_button(
         '下载当前筛选数据（CSV）',
         csv,
-        file_name='filtered_ppi_data.csv',
+        file_name='filtered_ppi_monthly.csv',
         mime='text/csv',
     )
-    st.markdown('### 数据来源说明')
+    st.markdown('### 数据来源与字段说明')
     st.markdown('''
-- **数据来源**：国家统计局 - 工业生产者出厂价格指数（PPI）
-- **行业覆盖**：黑色金属冶炼、有色金属冶炼、黑色金属矿采选、有色金属矿采选
-- **时间范围**：2015-2025 年度数据
-- **指数基准**：上年 = 100
-- **指数解读**：
-  - PPI > 100：当年价格高于去年
-  - PPI < 100：当年价格低于去年
-  - PPI = 100：当年价格与去年持平
-- **月度数据**：第 7 个 Tab 使用 akshare 从统计局抓取的 132 个月度真实数据点（2015-2025）
+- 数据来源：国家统计局 PPI 月度发布（经 akshare macro_china_ppi 初始抓取后提交入库；运行期本地 CSV 优先，无 fallback、无联网刷新）
+- 数据文件：data/raw/工业PPI_全国月度_2015-2025.csv（132 点真实月度观测，2015-01 至 2025-12）
+- 字段说明：
+  - date：月份
+  - ppi_index：PPI 指数（上年同月 = 100；指数 - 100 即当月同比 %）
+  - yoy_pct：同比 %（统计局发布口径）
+  - ytd_index：年初至今指数（上年同期 = 100）
+- 行业视图说明：原 4 行业年度对比基于手工估算数据（44 点，非可验证来源，P0.1 commit `587f9c6` 已删除），依赖它的 Tab 已下线并标注。当前平台展示与分析的唯一官方序列为全国总指数月度值。
+- 数字分层：Tab 5 展示的 P0.5 / P0.6 为锁定正式实验结果；Tab 7 每次会话实时重跑训练，展示数值为 demo 数值，两者并存是刻意分层，不是矛盾。
 ''')
 
 
 # ============ Tab 7: 月度时间序列预测 ============
 with tab7:
-    st.markdown('### 🕐 月度 PPI 时间序列预测（真实数据 132 点）')
-    st.markdown('基于 akshare 从国家统计局抓取的月度 PPI 总指数（2015-01 至 2025-12，共 132 个月度点），用 Prophet / XGBoost / LSTM 三模型对比预测未来 12 个月。')
+    st.markdown('### 🕐 月度 PPI 时间序列预测（实时训练 demo）')
+    st.markdown('本 Tab 用官方月度数据（2015-01 至 2025-12，132 点）按正式实验同款 108/24 切分，每次会话实时重训练 Prophet / XGBoost / LSTM 三模型并做 24 个月 OOS 回测。本页数值为当前环境的 demo 复跑值，随依赖版本漂移；正式锁定实验（P0.5 Final Test / P0.6 Walk-forward）见 Tab 5，两者并存是刻意分层，不是矛盾。')
 
     @st.cache_data(show_spinner=False)
     def load_monthly_data():
@@ -393,8 +330,7 @@ with tab7:
     df_monthly, monthly_summary = load_monthly_data()
 
     if df_monthly.empty:
-        st.error('⚠️ 月度数据加载失败，请检查 akshare 安装或网络')
-        st.code('pip install akshare', language='bash')
+        st.error('月度数据加载失败：本地官方 CSV（data/raw/工业PPI_全国月度_2015-2025.csv）读取异常，请确认文件完整后重启。本应用不联网抓取、不使用 fallback 数据。')
     else:
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -422,14 +358,28 @@ with tab7:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # 三模型训练
-        st.markdown('#### 🤖 三模型训练对比')
+        # 三模型训练（对齐 src/analyzer 真实 API：108/24 切分 + P0.3 锁定 LSTM 超参）
+        st.markdown('#### 🤖 三模型实时训练（demo 复跑 · 每会话重跑）')
         @st.cache_data(show_spinner=False)
         def train_monthly_models(_df):
             from src.analyzer.monthly_lstm import train_all_monthly_models
-            return train_all_monthly_models(_df, test_months=24, forecast_months=12)
+            from src.analyzer.ensemble import LSTM_BEST_PARAMS
+            # Streamlit 在非主线程执行脚本；macOS 下 torch 从该线程首次进入并行区时
+            # 会与已加载的 libomp（prophet/xgboost 共用）嵌套冲突导致死锁（AppTest 实测挂起）。
+            # 108 点训练量极小，锁单线程无性能损失，且保证 server 模式与 AppTest 一致可跑。
+            import torch
+            torch.set_num_threads(1)
+            try:
+                torch.set_num_interop_threads(1)
+            except RuntimeError:
+                pass  # 线程池已初始化时不可改，忽略（单线程 intra-op 已足够避免嵌套）
+            # 切分与正式实验同设计：Train+Validation = 108 月（至 2023-12），Final Test = 24 月（2024-01 起）
+            # train_all_monthly_models 内部 _verify_data_boundary 强校验 108/24 与日期边界，违反即抛错
+            df_train_val = _df[_df['date'] <= pd.Timestamp('2023-12-31')].reset_index(drop=True)
+            df_test = _df[_df['date'] >= pd.Timestamp('2024-01-01')].reset_index(drop=True)
+            return train_all_monthly_models(df_train_val, df_test, LSTM_BEST_PARAMS)
 
-        with st.spinner('正在训练月度三模型（首次约 30-60 秒）...'):
+        with st.spinner('正在实时训练 Prophet + XGBoost + LSTM（首次约 30-90 秒）...'):
             ml_monthly = train_monthly_models(df_monthly)
 
         if ml_monthly.get('status') == 'success':
@@ -449,195 +399,66 @@ with tab7:
                     })
             if eval_rows:
                 st.dataframe(pd.DataFrame(eval_rows), use_container_width=True)
+                st.markdown('评估口径：2024-01 至 2025-12 共 24 个月滚动一步 OOS 回测，与正式实验同切分同超参。上表为当前环境 demo 复跑值，正式锁定结果见 Tab 5。')
 
-            # ========== LSTM 网格搜索 + 集成学习（升级）==========
-            st.markdown('#### 🧠 LSTM 超参调优 + 集成学习')
-            st.markdown('通过网格搜索找到最优 LSTM 超参（units / dropout / seq_length），再与 XGBoost + Prophet 做反比 MAPE 加权集成。')
+            # ========== 超参 / 集成说明（正式实验锁定值，不在 demo 每会话重跑）==========
+            st.markdown('#### 🧠 超参与集成（正式实验锁定值）')
+            st.markdown('LSTM 超参来自 P0.3 正式调参实验：Train-only 网格搜索（18 组合 × 3 折时序 CV，调参数据不触碰 Validation 与 Final Test），锁定为 hidden_size=32 / num_layers=2 / dropout=0.1 / seq_length=6 / lr=0.001。本 Tab 每会话用该锁定超参实时重训练，不再重复网格搜索。')
+            st.markdown('集成模型是 P0.5 正式实验（7 模型 Validation-MAPE 反比加权，含 Naive / Seasonal Naive / MA / SES 四类基准线与子进程隔离 XGBoost），需要 84/24/24 三段划分与正式实验机器，不作为每会话 demo 重跑；Validation 锁定权重与 Final Test 指标见 Tab 5。')
 
-            @st.cache_data(show_spinner=False)
-            def run_ensemble(_df):
-                from src.analyzer.lstm_tuning import grid_search_lstm
-                from src.analyzer.ensemble import train_ensemble
-                grid_result = grid_search_lstm(_df, epochs=50, n_splits=3)
-                best_params = grid_result.get('best_params', {'units': 64, 'dropout': 0.1, 'seq_length': 6, 'lr': 0.001})
-                ensemble_result = train_ensemble(_df, test_months=24, forecast_months=12, lstm_params=best_params)
-                return grid_result, ensemble_result
-
-            with st.spinner('正在跑 LSTM 网格搜索 + 集成学习（首次约 2-3 分钟）...'):
-                grid_result, ensemble_result = run_ensemble(df_monthly)
-
-            if grid_result.get('status') == 'success' and ensemble_result.get('status') == 'success':
-                # 网格搜索结果
-                st.markdown('##### LSTM 网格搜索结果 Top 5')
-                top5 = grid_result['all_results'][:5]
-                grid_rows = []
-                for r in top5:
-                    grid_rows.append({
-                        '超参组合': f"units={r['params']['units']}, dropout={r['params']['dropout']}, seq_len={r['params']['seq_length']}",
-                        'MAPE %': round(r['mape'], 4),
-                        'MAPE 标准差': round(r['mape_std'], 4),
-                        '成功折数': r['n_folds'],
-                    })
-                st.dataframe(pd.DataFrame(grid_rows), use_container_width=True)
-                st.info(f"最优超参：{grid_result['best_params']}（MAPE {grid_result['best_mape']:.4f}%，用时 {grid_result['total_time_seconds']:.0f}s）")
-
-                # 集成对比表
-                st.markdown('##### 集成模型 vs 单一模型对比')
-                ens_rows = []
-                for m in ['xgboost', 'prophet', 'lstm', 'ensemble']:
-                    key = f'{m}_metrics'
-                    if key in ensemble_result and ensemble_result[key]:
-                        met = ensemble_result[key]
-                        label = {'xgboost': 'XGBoost', 'prophet': 'Prophet', 'lstm': 'LSTM（调优后）', 'ensemble': '🎯 集成模型'}[m]
-                        ens_rows.append({
-                            '模型': label,
-                            'MAE': met['MAE'],
-                            'RMSE': met['RMSE'],
-                            'MAPE %': met['MAPE_pct'],
-                            'R²': met['R_squared'],
-                        })
-                st.dataframe(pd.DataFrame(ens_rows), use_container_width=True)
-
-                # 权重可视化
-                if ensemble_result.get('weights'):
-                    weights = ensemble_result['weights']
-                    fig = go.Figure(go.Pie(
-                        labels=['XGBoost', 'Prophet', 'LSTM'],
-                        values=[weights['xgboost'], weights['prophet'], weights['lstm']],
-                        marker=dict(colors=['#3b82f6', '#10b981', '#ef4444']),
-                        hole=0.4,
-                    ))
-                    fig.update_layout(
-                        title=f'集成权重（反比 MAPE 加权 · 总权重 = {sum(weights.values()):.2f}）',
-                        template='plotly_white', height=350,
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                # 集成预测 vs 单一模型预测
-                st.markdown('##### 集成模型 12 个月预测')
-                if ensemble_result.get('ensemble_future_predictions'):
-                    future_dates = pd.date_range(df_monthly['date'].iloc[-1] + pd.DateOffset(months=1), periods=12, freq='MS')
-                    fig = go.Figure()
-                    # 历史
-                    fig.add_trace(go.Scatter(
-                        x=df_monthly['date'], y=df_monthly['ppi_index'],
-                        mode='lines', name='历史',
-                        line=dict(color='#0f172a', width=2),
-                    ))
-                    # 集成预测
-                    ensemble_vals = [p['predicted_ppi'] for p in ensemble_result['ensemble_future_predictions']]
-                    fig.add_trace(go.Scatter(
-                        x=future_dates, y=ensemble_vals,
-                        mode='lines+markers', name='🎯 集成预测',
-                        line=dict(color='#8b5cf6', width=3),
-                        marker=dict(size=8, symbol='star'),
-                    ))
-                    # 各单一模型预测（淡色）
-                    colors_pred = {'prophet': '#10b981', 'xgboost': '#3b82f6', 'lstm': '#ef4444'}
-                    for m in ['prophet', 'xgboost', 'lstm']:
-                        key = f'{m}_future'
-                        if key in ensemble_result and ensemble_result[key]:
-                            preds = ensemble_result[key]
-                            if isinstance(preds[0], dict):
-                                ys = [p['predicted_ppi'] for p in preds]
-                            elif hasattr(preds, 'tail'):
-                                ys = preds['yhat'].tail(12).values if 'yhat' in preds.columns else []
-                            else:
-                                ys = []
-                            if len(ys) == 12:
-                                fig.add_trace(go.Scatter(
-                                    x=future_dates, y=ys,
-                                    mode='lines', name=f'{m.upper()}（辅助）',
-                                    line=dict(color=colors_pred[m], width=1.5, dash='dot'),
-                                    opacity=0.5,
-                                ))
-                    fig.add_vline(x=df_monthly['date'].iloc[-1], line_dash='dot', line_color='gray', opacity=0.5)
-                    fig.add_hline(y=100, line_dash='dash', line_color='gray', opacity=0.3)
-                    fig.update_layout(
-                        title='集成模型月度 PPI 预测（2026-2027）',
-                        xaxis_title='日期', yaxis_title='PPI 指数',
-                        template='plotly_white', height=500, hovermode='x unified',
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                    # 集成预测数值表
-                    pred_table = pd.DataFrame([
-                        {'月份': d.strftime('%Y-%m'), '集成预测 PPI': round(p['predicted_ppi'], 2)}
-                        for d, p in zip(future_dates, ensemble_result['ensemble_future_predictions'])
-                    ])
-                    st.dataframe(pred_table, use_container_width=True)
-
-            # 三模型预测可视化（保留原版对比）
-            st.markdown('#### 三模型预测对比（调优前）')
-            future_dates = pd.date_range(df_monthly['date'].iloc[-1] + pd.DateOffset(months=1), periods=12, freq='MS')
+            # 三模型 OOS 回测图（test_pred vs test_actuals · 2024-01 ~ 2025-12）
+            st.markdown('#### 三模型 OOS 回测对比（2024-01 ~ 2025-12）')
+            test_dates = df_monthly.loc[df_monthly['date'] >= pd.Timestamp('2024-01-01'), 'date'].reset_index(drop=True)
             fig = go.Figure()
-            # 历史
             fig.add_trace(go.Scatter(
-                x=df_monthly['date'], y=df_monthly['ppi_index'],
-                mode='lines', name='历史',
+                x=test_dates, y=ml_monthly['prophet']['test_actuals'],
+                mode='lines+markers', name='实际值',
                 line=dict(color='#0f172a', width=2),
+                marker=dict(size=5),
             ))
-            # 各模型预测
             colors_pred = {'prophet': '#10b981', 'xgboost': '#3b82f6', 'lstm': '#ef4444'}
             for m in ['prophet', 'xgboost', 'lstm']:
-                if m in ml_monthly and ml_monthly[m].get('future_predictions'):
-                    preds = ml_monthly[m]['future_predictions']
-                    if isinstance(preds[0], dict):
-                        ys = [p['predicted_ppi'] for p in preds]
-                    else:
-                        ys = preds
-                    fig.add_trace(go.Scatter(
-                        x=future_dates, y=ys,
-                        mode='lines+markers', name=f'{m.upper()} 预测',
-                        line=dict(color=colors_pred[m], width=2, dash='dash'),
-                        marker=dict(size=6),
-                    ))
-            fig.add_vline(x=df_monthly['date'].iloc[-1], line_dash='dot', line_color='gray', opacity=0.5)
+                if m in ml_monthly and 'test_pred' in ml_monthly[m]:
+                    preds = ml_monthly[m]['test_pred']
+                    if len(preds) == len(test_dates):
+                        fig.add_trace(go.Scatter(
+                            x=test_dates, y=preds,
+                            mode='lines', name=f'{m.upper()} 预测',
+                            line=dict(color=colors_pred[m], width=2, dash='dash'),
+                        ))
             fig.add_hline(y=100, line_dash='dash', line_color='gray', opacity=0.3)
             fig.update_layout(
-                title='月度 PPI 三模型 12 个月预测（默认超参）',
+                title='三模型 24 个月 OOS 回测（demo 复跑值）',
                 xaxis_title='日期', yaxis_title='PPI 指数',
                 template='plotly_white', height=500, hovermode='x unified',
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # XGBoost 特征重要性
-            if 'xgboost' in ml_monthly and ml_monthly['xgboost'].get('feature_importance'):
-                st.markdown('#### XGBoost 特征重要性')
-                fi = pd.Series(ml_monthly['xgboost']['feature_importance']).sort_values(ascending=True)
-                fig = go.Figure(go.Bar(
-                    x=fi.values, y=fi.index, orientation='h',
-                    marker_color='#3b82f6',
-                ))
-                fig.update_layout(
-                    title='月度 XGBoost 特征重要性',
-                    xaxis_title='重要性', yaxis_title='特征',
-                    template='plotly_white', height=400,
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            # XGBoost 特征清单（当前 src 返回结构不落库特征重要性权重，展示正式特征工程清单）
+            feature_cols = ml_monthly['xgboost'].get('feature_cols') or []
+            if feature_cols:
+                st.markdown('#### XGBoost 特征工程清单（' + str(len(feature_cols)) + ' 项）')
+                st.markdown('、'.join(feature_cols))
 
             # 方法论
             st.markdown('#### 方法论')
             st.markdown('''
-**数据来源**：akshare.macro_china_ppi() 间接从国家统计局月度发布的 PPI 总指数抓取（247 个月度点中筛选 2015-2025 = 132 点）
+数据来源：data/raw/工业PPI_全国月度_2015-2025.csv（132 点官方真实月度观测，2015-01 至 2025-12）。akshare macro_china_ppi 仅作为初始抓取工具；运行期读已提交的本地 CSV，无联网刷新、无 fallback、无估算数据。
 
-**样本规模**：132 月度点（年度 44 点的 3 倍）—— LSTM 真正可训练
+数字分层：本 Tab 每次会话实时重训练，展示的是当前环境下的 demo 复跑数值（随 pandas / numpy / prophet 版本漂移）；正式锁定实验结果（P0.5 Final Test / P0.6 Walk-forward，含集成权重与指标）见 Tab 5，两组数字并存是刻意分层，不是矛盾。
 
-**训练/测试划分**：2015-01 至 2023-12 训练（108 点），2024-01 至 2025-12 测试（24 点）
+训练/测试划分：与正式实验同设计——2015-01 至 2023-12 为 Train + Validation（108 点），2024-01 至 2025-12 为 24 个月 OOS 回测窗口。
 
-**特征工程**：
-- 滞后特征：lag1 / lag3 / lag6 / lag12（捕捉时间依赖）
-- 滚动统计：3 月 / 6 月 / 12 月移动均值 + 标准差
-- 时间特征：年 / 月 / 季度
-- 同比 / 环比变化
+LSTM 超参：P0.3 正式调参锁定值（Train-only 网格搜索，18 组合 × 3 折时序 CV，数据不触碰 Validation / Final Test）：hidden_size=32 / num_layers=2 / dropout=0.1 / seq_length=6 / lr=0.001。本 Tab 直接复用锁定超参，每会话不重复调参。
 
-**模型说明**：
-- **Prophet**：Facebook 开源时间序列模型，加法分解（趋势 + 年度季节性）—— 月度数据首选
-- **XGBoost**：基于特征工程的梯度提升树 —— 结构化数据表现稳定
-- **LSTM（调优后）**：通过 18 组合网格搜索 + 3 折时间序列 CV 找到最优超参（units=64, dropout=0.1, seq_length=6）
-- **集成模型**：反比 MAPE 加权平均（XGBoost 0.52 + LSTM 0.39 + Prophet 0.09）
+特征工程（XGBoost，清单见上方）：滞后 lag1 / lag3 / lag6 / lag12、3 / 6 / 12 月滚动均值与标准差、年月季度时间特征、同比 / 环比变动。
 
-**结论**：集成模型 MAPE=0.24% 比单一最强 XGBoost（0.28%）低 15% —— 多模型互补验证了预测稳健性
+模型说明：
+- Prophet：加法分解（趋势 + 年度季节性），24 个月滚动一步 OOS
+- XGBoost：因果特征工程 + 子进程隔离滚动一步预测
+- LSTM：2 层 PyTorch LSTM（hidden 32），滚动一步 OOS 预测
+
+评估提示：2024-2025 处于 PPI 低波动区间，低 MAPE 应结合 Naive baseline 一起解读；正式对比（7 模型同口径）见 Tab 5 的 P0.5 表格。
 ''')
         else:
             st.error('月度模型训练失败')
@@ -646,7 +467,7 @@ with tab7:
 st.markdown('---')
 st.markdown('''
 <div style='text-align: center; color: #64748b; font-size: 0.9rem;'>
-中国工业 PPI 跨行业分析平台 · 作者：十八 · 2026 秋招简历项目<br>
-技术栈：Python + pandas + Plotly + Streamlit + XGBoost + TensorFlow + Prophet
+中国工业 PPI 分析与预测平台 · 作者：十八 · 2026 秋招简历项目<br>
+技术栈：Python + pandas + Plotly + Streamlit + XGBoost + PyTorch + Prophet
 </div>
 ''', unsafe_allow_html=True)

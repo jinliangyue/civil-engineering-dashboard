@@ -7,13 +7,14 @@
 - **Data**: 132 monthly PPI observations (2015-01 to 2025-12) retrieved through akshare from China's National Bureau of Statistics
 - **Status**: Deployed, automatically loads data from `data/raw/`
 
-## Reality Check (2026-09-03, P0.9.5)
+## Reality Check (2026-09-03, P0.9.6)
 
-- The live Cloud app runs the code at `origin/main` = `3de3695`. The local research fixes (P0.5 / P0.6 / path fixes, 13 commits ahead) are **not** on the live app. Re-deploying requires an explicit user decision and a push.
+- The live Cloud app runs the code at `origin/main` = `3de3695`. The local fixes (P0.5 / P0.6 / path fixes / P0.9.6 data-contract repair, 15 commits ahead) are **not** on the live app. Re-deploying requires an explicit user decision and a push.
+- P0.9.6 (local HEAD) repaired the app's top-level data contract: the app now loads the single official monthly CSV in `data/raw/` from any working directory, with no `st.stop()` on healthy data and Tab 1-7 all reachable. Until that commit is pushed, the Cloud app still runs the pre-fix contract.
 - The actual Cloud Python runtime has **not been independently verified** (login wall; no observable build logs). `runtime.txt` (`python-3.12`) is repository configuration only.
 - Deployment dependencies are documented in `requirements-deploy.txt` (compatibility baseline, Cloud runtime not verified). What Cloud installs today is the legacy unpinned `requirements.txt`.
 - The demo re-trains models on every session; its displayed metrics are live-demo metrics, not the locked formal research results.
-- Full details: `docs/ENVIRONMENT.md` and `AI_PROJECT_CONTEXT.md` §15/§16.
+- Full details: `docs/ENVIRONMENT.md` (§8.2 P0.9.6 status) and `AI_PROJECT_CONTEXT.md` §17.
 
 > The legacy manually-estimated fallback datasets have been removed. The current application uses the official monthly PPI dataset retrieved through akshare.
 
